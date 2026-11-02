@@ -1,0 +1,11 @@
+<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui" onLoad="OnAddinLoad">
+  <ribbon startFromScratch="false">
+    <tabs>
+      <tab id="editTrailTab" label="EditTrail">
+        <group id="editTrailGroup" label="修改日志">
+          <button id="btnTrailProbe" label="写探针日志" onAction="OnAction" size="large"/>
+        </group>
+      </tab>
+    </tabs>
+  </ribbon>
+</customUI>

@@ -1,0 +1,47 @@
+{
+  "name": "edit-trail",
+  "version": "0.0.1",
+  "description": "Local-first edit trail for Office documents (xlsx/docx/pptx): record what changed between versions so LLMs read the delta instead of re-diffing.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "edittrail": "./src/cli/edittrail.mjs"
+  },
+  "main": "./src/core/snapshot.mjs",
+  "exports": {
+    ".": "./src/core/snapshot.mjs",
+    "./mcp": "./src/mcp/server.mjs",
+    "./revisions": "./src/core/revisions.mjs"
+  },
+  "files": [
+    "src",
+    "addin-wps",
+    "docs",
+    "tools",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "selftest": "node src/mcp/selftest.mjs",
+    "demo": "node demo.mjs",
+    "mcp": "node src/mcp/server.mjs"
+  },
+  "keywords": [
+    "docx",
+    "xlsx",
+    "pptx",
+    "ooxml",
+    "diff",
+    "track-changes",
+    "revision-tracking",
+    "llm",
+    "mcp",
+    "wps",
+    "office"
+  ]
+}

@@ -1,0 +1,5 @@
+# Directories watched by tools/start-trail.ps1 (one path per line, UTF-8).
+# Add or remove lines freely; relative paths are not supported.
+# 示例（把下面两行换成你自己的目录后去掉注释）：
+# D:\docs
+# D:\docs\out

@@ -1,0 +1,24 @@
+# 运行期产物
+logs/
+*.log
+
+# 每个文档旁边的变更目录
+*.edittrail/
+
+# demo 生成的文件（保留 markdown 产物，忽略二进制样本）
+examples/*.xlsx
+examples/*.docx
+examples/*.pptx
+
+# 系统/编辑器
+node_modules/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# 临时/备份
+dist/
+*.bak
+*.bak-*
+*.tmp
