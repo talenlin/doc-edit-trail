@@ -95,24 +95,24 @@ Claude Desktop / 其他 MCP 客户端同理。细节见 [docs/INTEGRATION-MCP.md
 > 读 Office 文档前，先调用 `doc_changes` 看有没有新的编辑轨迹；有就只针对变化部分回答，
 > 不要重新通读全文，也不要用 mtime 判断「谁改的」。
 
-## WPS 加载项（可选，v0.0.1 只有表格）
+## WPS 加载项：三宿主都已实测跑通（文字 / 表格 / 演示）
 
-`addin-wps/` 是一个最小的 WPS 表格加载项：功能区多一个 `EditTrail` 标签页，
-`SheetChange` 等事件通过本地服务写日志。
+在本机 WPS **12.1.0.29680 个人版**上已实测跑通（事实与证据见 [addin-wps/RECON.md](addin-wps/RECON.md)，
+安装步骤见 [addin-wps/INSTALL.md](addin-wps/INSTALL.md)）：
 
-```powershell
-# 1) 起服务（必须常驻：加载项 url 只能是 http(s)）
-node addin-wps/tools/serve.js 39871
-
-# 2) 写 publish.xml（装完重启 WPS 才生效）
-powershell -NoProfile -ExecutionPolicy Bypass -File addin-wps/tools/install.ps1
-
-# 3) 打开任意 .xlsx，功能区出现 EditTrail 标签页
-```
-
-实测结论（WPS 12.1.0.29680 个人版）：可加载、可触发；`url` 必须 http(s)，
-`SheetChange` 无旧值，docx 无实时编辑事件。完整事实表见 [addin-wps/RECON.md](addin-wps/RECON.md)，
-安装/卸载/回滚见 [addin-wps/INSTALL.md](addin-wps/INSTALL.md)。
+- 一套包挂三个宿主：`%APPDATA%\kingsoft\wps\jsaddons\publish.xml` 里登记 `type="et"`（表格）、
+  `type="wps"`（文字）、`type="wpp"`（演示）三条，`url` 分别指向本地 HTTP 服务的 `/`、`/wps/`、`/wpp/`。
+  不改注册表、不要开发者账号、不重装 WPS。功能区长出 `EditTrail` 标签页，内含「记检查点」「修订开关」两个按钮。
+- **硬依赖**：`url` 必须是 http(s)，`file://` 和相对目录实测**静默不加载**（无报错）。即必须有一个常驻的
+  本地静态服务（`addin-wps/tools/serve.js` 已把托管、按宿主路由、事件接收合并成一个小进程）。
+- 实测注册并触发的事件：
+  - 表格：9 个（`SheetChange` 带 sheet 名 + Range + **新值**；`WorkbookBeforeClose`/`WindowDeactivate` 已实测触发）
+  - 文字：6 个（`DocumentBeforeSave` 实测由 Ctrl+S 触发；`open` 记录里带 `TrackRevisions` 与修订条数）
+  - 演示：5 个（`PresentationBeforeClose` 实测触发；`Saved` 是三态 `-1/0/true`）
+- 拿不到：**旧值**（要自己在加载项里维护影子缓存算 diff）；**docx 没有实时编辑事件**，只有保存时机 → docx 的
+  实时轨迹只能落到 L0 的保存后 diff。
+- 事件 API 在本机三宿主都只在 `wps.ApiEvent` 上（`Application.ApiEvent` 不存在），`trail.js` 做了三级回退。
+- 因此定位不变：L1 只做「谁改的 / 哪个保存点」这类廉价锚点，权威轨迹仍在 L0。
 
 ## 数据落在哪
 

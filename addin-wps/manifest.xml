@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <JsPlugin>
   <ApiVersion>1.0.0</ApiVersion>
-  <Name>EditTrailProbe</Name>
-  <Description>EditTrail probe: record editing events to a local log</Description>
+  <Name>EditTrail</Name>
+  <Description>EditTrail: record document edits and save events to a local trail</Description>
 </JsPlugin>

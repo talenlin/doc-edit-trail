@@ -1,18 +1,61 @@
-// EditTrail probe: 记录 WPS 编辑事件到本地日志
-// 双通道: (1) wps.FileSystem.AppendFile 直接写文件  (2) XHR 到本地探针服务器(取证)
+// EditTrail add-in — records editing / save events from inside WPS.
+//
+// One package serves all three WPS components. serve.js injects
+// /<host>/host.js so this page knows whether it runs in
+//   et  = WPS Spreadsheets
+//   wps = WPS Writer
+//   wpp = WPS Presentation
+// and registers only the events that host actually supports.
+//
+// Channels (both best-effort, neither can block editing):
+//   1) HTTP POST to the local EditTrail service. The service is required anyway
+//      because WPS only loads add-ins over http(s).
+//   2) wps.FileSystem.AppendFile -> <AppData>/edit-trail/logs/addin.log
+//
+// Privacy: records carry file name / path / counters / event names only.
+// Document text is never sent, except the single cell value an ET SheetChange
+// event already hands to the callback.
 var Trail = (function () {
+  var VERSION = '0.2.0';
   var SRV = 'http://127.0.0.1:39871';
-  // 日志目录：优先 %APPDATA%\edit-trail\logs（wps.Env 提供），取不到就退回页面相对目录
-  var LOG_DIR = (function () {
-    try { return String(wps.Env.GetAppDataPath()).replace(/\\/g, '/') + '/edit-trail/logs'; } catch (e) {}
-    return 'edit-trail/logs';
-  })();
-  var LOG_FILE = LOG_DIR + '/addin.log';
+
+  var HOSTS = {
+    wps: {
+      label: 'Word',
+      docProp: 'ActiveDocument',
+      docNoun: '文档',
+      events: ['DocumentOpen', 'DocumentBeforeSave', 'DocumentBeforeClose',
+               'DocumentAfterClose', 'WindowActivate', 'WindowDeactivate']
+    },
+    et: {
+      label: 'Excel',
+      docProp: 'ActiveWorkbook',
+      docNoun: '工作簿',
+      events: ['NewWorkbook', 'WorkbookOpen', 'WorkbookBeforeSave', 'WorkbookAfterSave',
+               'WorkbookBeforeClose', 'SheetChange', 'SheetActivate',
+               'WindowActivate', 'WindowDeactivate']
+    },
+    wpp: {
+      label: 'PowerPoint',
+      docProp: 'ActivePresentation',
+      docNoun: '演示文稿',
+      events: ['NewPresentation', 'PresentationOpen', 'PresentationBeforeSave',
+               'PresentationBeforeClose', 'PresentationSave']
+    }
+  };
+
+  var HOST = (typeof EDIT_TRAIL_HOST === 'string' && EDIT_TRAIL_HOST)
+    ? EDIT_TRAIL_HOST : detectHost();
+  var def = HOSTS[HOST] || HOSTS.et;
+
   var _seq = 0;
   var _buf = [];
-  var _fileMode = null;
   var _app = null;
-  var _registered = false;
+  var _ready = false;
+  var _fileMode = null;
+  var _logDir = '';
+  var _logFile = '';
+  var _last = '';
 
   function errStr(e) {
     if (!e) return String(e);
@@ -24,228 +67,259 @@ var Trail = (function () {
   }
 
   function safe(fn) {
-    try { var v = fn(); return (v === undefined) ? 'undefined' : v; }
-    catch (e) { return 'ERR:' + errStr(e); }
-  }
-
-  // ET 里 Range.Address / Selection.Address 实测是"函数"而非字符串属性, 必须调用
-  function addrOf(rg) {
-    if (!rg) return null;
-    var a = rg.Address;
-    if (typeof a === 'function') return String(a());
-    return String(a);
-  }
-  function textOf(rg) {
-    if (!rg) return null;
-    try { return String(rg.Text); } catch (e) {
-      try { return String(rg.Text()); } catch (e2) { return 'ERR:' + errStr(e); }
-    }
-  }
-  function valOf(rg) {
-    if (!rg) return null;
-    try { return String(rg.Value2); } catch (e) {
-      try { return String(rg.Value2()); } catch (e2) { return 'ERR:' + errStr(e); }
-    }
-  }
-
-  function httpLog(obj) {
     try {
-      var line = JSON.stringify(obj);
+      var v = fn();
+      return (v === undefined) ? 'undefined' : v;
+    } catch (e) { return 'ERR:' + errStr(e); }
+  }
+
+  // host.js is authoritative; this is only a fallback for hand-opened pages.
+  function detectHost() {
+    try {
+      if (typeof wps !== 'undefined') {
+        if (Application && Application.ActivePresentation) return 'wpp';
+        if (Application && Application.ActiveDocument) return 'wps';
+        if (Application && Application.ActiveWorkbook) return 'et';
+      }
+    } catch (e) {}
+    try {
+      if (typeof wps !== 'undefined' && wps.WppApplication && wps.WppApplication()) return 'wpp';
+    } catch (e) {}
+    return 'et';
+  }
+
+  function getApp() {
+    try {
+      if (typeof wps !== 'undefined') {
+        if (HOST === 'wps' && wps.WpsApplication) return wps.WpsApplication();
+        if (HOST === 'wpp' && wps.WppApplication) return wps.WppApplication();
+        if (HOST === 'et' && wps.EtApplication) return wps.EtApplication();
+      }
+    } catch (e) {}
+    try { if (typeof Application !== 'undefined') return Application; } catch (e) {}
+    return null;
+  }
+
+  function appDataPath() {
+    try {
+      var p = wps.Env.GetAppDataPath();
+      if (p) return String(p);
+    } catch (e) {}
+    return '';
+  }
+
+  function initFileLog() {
+    if (_fileMode !== null) return _fileMode;
+    _fileMode = 'off';
+    try {
+      if (typeof wps === 'undefined' || !wps.FileSystem) return _fileMode;
+      var base = appDataPath().replace(/\\/g, '/');
+      // only use absolute paths; a relative one would land in an unknown cwd
+      if (!base || base.charAt(1) !== ':') return _fileMode;
+      _logDir = base + '/edit-trail/logs';
+      _logFile = _logDir + '/addin.log';
+      try { wps.FileSystem.Mkdir(_logDir); } catch (e) {}
+      _fileMode = '2arg';
+    } catch (e) { _fileMode = 'off'; }
+    return _fileMode;
+  }
+
+  function fileAppend(line) {
+    if (initFileLog() !== '2arg') return false;
+    try {
+      wps.FileSystem.AppendFile(_logFile, line + '\r\n');
+      return true;
+    } catch (e) {
+      _fileMode = 'off';
+      return false;
+    }
+  }
+
+  function httpPost(line) {
+    try {
       var x = new XMLHttpRequest();
-      x.open('GET', SRV + '/log?l=' + encodeURIComponent(line), true);
-      x.send(null);
+      x.open('POST', SRV + '/log', true);
+      x.setRequestHeader('Content-Type', 'application/json; charset=utf-8');
+      x.send(line);
       return true;
     } catch (e) { return false; }
   }
 
-  // 统一记录: HTTP + 文件(两条独立通道, 互不影响)
   function rec(obj) {
     obj.ts = new Date().toISOString();
     obj.seq = ++_seq;
+    obj.host = obj.host || HOST;
+    obj.hostLabel = obj.hostLabel || def.label;
+    obj.addin = VERSION;
     var line = JSON.stringify(obj);
     _buf.push(line);
-    httpLog(obj);
-    if (_fileMode) {
-      try {
-        if (_fileMode === '2arg') wps.FileSystem.AppendFile(LOG_FILE, line + '\r\n');
-        else wps.FileSystem.AppendFile(LOG_FILE);
-      } catch (e) { }
-    }
+    if (_buf.length > 200) _buf.splice(0, _buf.length - 200);
+    httpPost(line);
+    fileAppend(line);
     return line;
   }
 
-  function fsCall(method, args, note) {
-    var out = { k: 'fs_call', method: method, argc: args.length, note: note || '' };
-    if (!(window.wps && wps.FileSystem)) { out.r = 'NO_FILE_SYSTEM'; httpLog(out); return out; }
-    try {
-      var r = wps.FileSystem[method].apply(wps.FileSystem, args);
-      if (r === undefined) out.r = 'undefined';
-      else if (typeof r === 'boolean') out.r = r;
-      else out.r = String(r).substring(0, 400);
-    } catch (e) { out.err = errStr(e); }
-    httpLog(out);
-    return out;
-  }
-
-  function probeFileSystem() {
-    httpLog({ k: 'host', href: location.href, ua: navigator.userAgent,
-              hasWps: typeof wps !== 'undefined',
-              hasApplication: typeof Application !== 'undefined',
-              wpsKeys: (typeof wps !== 'undefined') ? Object.keys(wps).join(',') : '' });
-    fsCall('Exists', [LOG_DIR], 'logs dir exists?');
-    fsCall('Mkdir', [LOG_DIR], 'mkdir logs (may fail if exists)');
-    var a = fsCall('AppendFile', [LOG_FILE, 'PROBE-2ARG ' + new Date().toISOString() + '\n'], '2-arg append');
-    var e1 = fsCall('Exists', [LOG_FILE], 'log file exists after 2arg?');
-    var rf = fsCall('ReadFile', [LOG_FILE], 'read back');
-    var readBack = (rf && typeof rf.r === 'string') ? rf.r : '';
-    if (e1 && e1.r === true) {
-      _fileMode = '2arg';
-      rec({ k: 'fs_probe_result',
-            verdict: (readBack && readBack !== 'undefined') ? 'WRITE_OK_2ARG' : 'WRITE_OK_2ARG_READFILE_UNUSABLE',
-            readBackLen: readBack.length, readBackHead: readBack.substring(0, 200) });
-    } else {
-      var b = fsCall('AppendFile', [LOG_FILE], '1-arg append');
-      var e2 = fsCall('Exists', [LOG_FILE], 'log file exists after 1arg?');
-      _fileMode = (e2 && e2.r === true) ? '1arg' : null;
-      rec({ k: 'fs_probe_result', verdict: _fileMode ? 'WRITE_PARTIAL_1ARG' : 'WRITE_UNAVAILABLE',
-            append2: a ? (a.err || a.r) : 'n/a', append1: b ? (b.err || b.r) : 'n/a' });
-    }
-  }
-
   function docInfo() {
-    var o = {};
-    try {
-      var wb = _app.ActiveWorkbook;
-      if (wb) {
-        o.name = safe(function () { return wb.Name; });
-        o.fullName = safe(function () { return wb.FullName; });
-        o.path = safe(function () { return wb.Path; });
-        o.saved = safe(function () { return wb.Saved; });
-      } else { o.workbook = 'none'; }
-    } catch (e) { o.err = errStr(e); }
-    o.selection = safe(function () { return addrOf(_app.Selection); });
+    var o = { host: HOST };
+    var a = _app || getApp();
+    if (!a) { o.state = 'no-app'; return o; }
+    var d = null;
+    try { d = a[def.docProp]; } catch (e) { o.err = errStr(e); }
+    if (!d) { o.state = 'no-doc'; return o; }
+    o.state = 'ok';
+    o.name = safe(function () { return d.Name; });
+    o.fullName = safe(function () { return d.FullName; });
+    o.path = safe(function () { return d.Path; });
+    o.saved = safe(function () { return d.Saved; });
+    if (HOST === 'wps') {
+      o.trackRevisions = safe(function () { return d.TrackRevisions; });
+      o.revisions = safe(function () { return d.Revisions ? d.Revisions.Count : null; });
+    } else if (HOST === 'wpp') {
+      o.slides = safe(function () { return d.Slides ? d.Slides.Count : null; });
+    } else {
+      o.sheets = safe(function () { return d.Sheets ? d.Sheets.Count : null; });
+    }
     return o;
   }
 
-  function handler(evName) {
+  function handler(name) {
     return function () {
       var a = arguments;
-      var o = { k: 'event', ev: evName, argc: a.length };
+      var o = { k: 'event', ev: name, argc: a.length };
       try {
-        if (evName === 'SheetChange' || evName === 'SheetSelectionChange') {
-          o.sheet = safe(function () { return a[0] ? a[0].Name : null; });
-          var rg = a[1];
-          if (rg) {
-            o.address = safe(function () { return addrOf(rg); });
-            o.text = safe(function () { return textOf(rg); });
-            o.value = safe(function () { return valOf(rg); });
+        if (HOST === 'et') {
+          if (name === 'SheetChange' || name === 'SheetActivate') {
+            o.sheet = safe(function () { return a[0] ? a[0].Name : null; });
+            var rg = a[1];
+            if (rg) {
+              o.address = safe(function () {
+                var v = rg.Address;
+                return (typeof v === 'function') ? String(v()) : String(v);
+              });
+              o.text = safe(function () {
+                try { return String(rg.Text); }
+                catch (e) { return String(rg.Text()); }
+              });
+            }
           }
+        } else if (HOST === 'wps' && (name === 'DocumentBeforeSave' || name === 'DocumentAfterClose')) {
+          // Word has no text-change event; the save is the useful checkpoint.
+          o.doc = docInfo();
         }
-        var d = docInfo();
-        for (var k in d) o['doc_' + k] = d[k];
+        if (!o.doc) o.doc = docInfo();
       } catch (e) { o.err = errStr(e); }
       rec(o);
     };
   }
 
-  // 注册事件: 只做一次 (实测 OnAddinLoad 会被调用多次, 需去重)
-  function registerEvents() {
-    var names = ['WorkbookOpen', 'NewWorkbook', 'WorkbookBeforeSave', 'WorkbookAfterSave',
-                 'WorkbookBeforeClose', 'SheetActivate', 'SheetChange',
-                 'SheetSelectionChange', 'WindowActivate', 'WindowDeactivate',
-                 'DocumentOpen', 'PresentationOpen'];
-    for (var i = 0; i < names.length; i++) {
-      var n = names[i];
-      try {
-        _app.ApiEvent.AddApiEventListener(n, handler(n));
-        rec({ k: 'listen_ok', ev: n });
-      } catch (e) { rec({ k: 'listen_fail', ev: n, e: errStr(e) }); }
+  // ApiEvent lives on Application in Spreadsheets, but is exposed on the
+  // wps namespace in Writer/Presentation; try all three before giving up.
+  function apiEvent() {
+    try { if (_app && _app.ApiEvent) return { api: _app.ApiEvent, src: 'Application.ApiEvent' }; } catch (e) {}
+    try { if (typeof wps !== 'undefined' && wps.ApiEvent) return { api: wps.ApiEvent, src: 'wps.ApiEvent' }; } catch (e) {}
+    try { if (typeof ApiEvent !== 'undefined' && ApiEvent) return { api: ApiEvent, src: 'global.ApiEvent' }; } catch (e) {}
+    return null;
+  }
+
+  function register() {
+    var ok = [], fail = [];
+    var found = apiEvent();
+    if (!found) {
+      rec({ k: 'listeners', ok: ok, fail: ['NO_API_EVENT'] });
+      return;
     }
+    for (var i = 0; i < def.events.length; i++) {
+      var n = def.events[i];
+      try {
+        found.api.AddApiEventListener(n, handler(n));
+        ok.push(n);
+      } catch (e) {
+        fail.push(n + ':' + errStr(e));
+      }
+    }
+    rec({ k: 'listeners', ok: ok, fail: fail, source: found.src });
   }
 
   function boot(tag) {
-    if (_registered) { httpLog({ k: 'boot_skip_dup', tag: tag }); return; }
-    _registered = true;
-    try { _app = (typeof Application !== 'undefined') ? Application : wps.EtApplication(); }
-    catch (e) { rec({ k: 'boot_err', tag: tag, e: errStr(e) }); return; }
-    var info = { k: 'boot', tag: tag, hasApp: !!_app };
-    info.appName = safe(function () { return _app.Name; });
-    info.appVersion = safe(function () { return _app.Version; });
-    info.build = safe(function () { return _app.Build; });
-    info.hasApiEvent = safe(function () { return !!_app.ApiEvent; });
-    info.wbCount = safe(function () { return _app.Workbooks.Count; });
-    info.temp = safe(function () { return wps.Env.GetTempPath(); });
-    info.appdata = safe(function () { return wps.Env.GetAppDataPath(); });
-    info.home = safe(function () { return wps.Env.GetHomePath(); });
-    info.installRoot = safe(function () { return wps.Env.GetRootPath(); });
-    info.thisAddIn = safe(function () { return String(_app.CurrentWPSAddIn); });
-    rec(info);
-    registerEvents();
-  }
-
-  // 用 ribbonUI 激活自定义标签页(比模拟鼠标点击可靠)
-  function activateTab() {
-    var o = { k: 'activate_tab' };
-    try {
-      o.hasRibbonUI = !!_app.ribbonUI;
-      o.methods = safe(function () {
-        var ks = [], t = _app.ribbonUI;
-        for (var k in t) ks.push(k);
-        return ks.join(',');
-      });
-      _app.ribbonUI.ActivateTab('editTrailTab');
-      o.r = 'ok';
-    } catch (e) { o.err = errStr(e); }
-    rec(o);
-  }
-
-  // 深度测试: 新建空白工作簿 -> 写单元格(期望 SheetChange) -> 关闭(期望 WorkbookBeforeClose)
-  // 只操作自己新建的 Workbook, 不触碰任何已存在文档
-  function deepTest(tag) {
-    rec({ k: 'deep_start', tag: tag, wbCount: safe(function () { return _app.Workbooks.Count; }) });
-    var wb = null;
-    try { wb = _app.Workbooks.Add(); }
-    catch (e) { rec({ k: 'deep_fail', step: 'add', e: errStr(e) }); return; }
-    rec({ k: 'deep_added',
-          name: safe(function () { return wb.Name; }),
-          path: safe(function () { return wb.Path; }),
-          wbCount: safe(function () { return _app.Workbooks.Count; }) });
-    var sh = null;
-    try { sh = wb.Sheets.Item(1); } catch (e) { rec({ k: 'deep_fail', step: 'sheet', e: errStr(e) }); }
-    if (sh) {
-      var v = 'editTrail deep ' + new Date().toISOString();
-      try {
-        sh.Cells.Item(1, 1).Value2 = v;
-        rec({ k: 'deep_wrote', sheet: safe(function () { return sh.Name; }), value: v });
-      } catch (e) { rec({ k: 'deep_fail', step: 'write', e: errStr(e) }); }
-      rec({ k: 'deep_readback', v: safe(function () { return String(sh.Cells.Item(1, 1).Value2); }) });
+    if (_ready) {
+      rec({ k: 'boot_dup', tag: tag });
+      return;
     }
+    _ready = true;
+    _app = getApp();
+    rec({
+      k: 'boot',
+      tag: tag,
+      appName: safe(function () { return _app ? _app.Name : null; }),
+      appVersion: safe(function () { return _app ? _app.Version : null; }),
+      hasApiEvent: safe(function () { return !!(_app && _app.ApiEvent); }),
+      hasNamespaceApiEvent: safe(function () { return (typeof wps !== 'undefined') && !!wps.ApiEvent; }),
+      hasGlobalApiEvent: safe(function () { return (typeof ApiEvent !== 'undefined') && !!ApiEvent; }),
+      appdata: appDataPath(),
+      fileMode: initFileLog(),
+      href: String(location.href),
+      ua: String(navigator.userAgent)
+    });
+    register();
+    // One snapshot once the document is really there.
     setTimeout(function () {
-      try { wb.Close(false); rec({ k: 'deep_closed', note: 'Close(false) 不保存' }); }
-      catch (e) { rec({ k: 'deep_fail', step: 'close', e: errStr(e) }); }
-    }, 2000);
+      try { rec({ k: 'open', doc: docInfo() }); } catch (e) {}
+    }, 900);
+  }
+
+  function checkpoint(note) {
+    var info = docInfo();
+    rec({ k: 'checkpoint', note: note || '', doc: info });
+    return 'EditTrail 已记检查点' + (info.name ? '：' + info.name : '');
+  }
+
+  function toggleTrackRevisions() {
+    if (HOST !== 'wps') {
+      return def.label + ' 侧没有“修订”开关；改动会在保存时按文件比对记录';
+    }
+    var a = _app || getApp();
+    var d = null;
+    try { d = a.ActiveDocument; } catch (e) {}
+    if (!d) return '没有打开的文档';
+    var cur = false;
+    try { cur = !!d.TrackRevisions; } catch (e) {}
+    var next = !cur;
+    try { d.TrackRevisions = next; }
+    catch (e) { return '切换修订失败：' + errStr(e); }
+    rec({ k: 'track_revisions', value: next, doc: docInfo() });
+    return next
+      ? '已开启修订：之后的修改都会带作者名'
+      : '已关闭修订';
   }
 
   function buttonAction(control) {
-    var o = { k: 'button', id: safe(function () { return (control && (control.Id || control.id)) || 'unknown'; }) };
-    o.doc = docInfo();
-    _opt = o.doc;
-    rec(o);
-    if (_fileMode) rec({ k: 'button_filemode', mode: _fileMode });
+    var id = '';
+    try { id = String(control.Id || control.id || ''); } catch (e) {}
+    var msg;
+    if (id === 'btnCheckpoint') {
+      msg = checkpoint('ribbon');
+      rec({ k: 'button', id: id, doc: docInfo() });
+    } else if (id === 'btnTrackChanges') {
+      msg = toggleTrackRevisions();
+    } else {
+      rec({ k: 'button', id: id, doc: docInfo() });
+      msg = 'EditTrail: ' + (id || 'unknown');
+    }
+    return msg;
   }
-  var _opt;
 
-  return { boot: boot, rec: rec, httpLog: httpLog, probeFileSystem: probeFileSystem,
-           deepTest: deepTest, activateTab: activateTab, buttonAction: buttonAction,
-           state: function () { return _buf; } };
-})();
+  // Boot shortly after load; OnAddinLoad calls boot() again and is de-duped.
+  setTimeout(function () { try { boot('load+300ms'); } catch (e) {} }, 300);
 
-// 启动序列
-(function () {
-  setTimeout(function () { try { Trail.boot('t=0.5s'); } catch (e) { } }, 500);
-  setTimeout(function () { try { Trail.probeFileSystem(); } catch (e) { } }, 1500);
-  setTimeout(function () { try { Trail.activateTab(); } catch (e) { } }, 5000);
-  setTimeout(function () { try { Trail.deepTest('t=9s'); } catch (e) { } }, 9000);
-  setTimeout(function () { try { Trail.activateTab(); } catch (e) { } }, 16000);
-  setTimeout(function () { try { Trail.rec({ k: 'heartbeat', t: '25s', alive: true }); } catch (e) { } }, 25000);
+  return {
+    version: VERSION,
+    host: HOST,
+    boot: boot,
+    rec: rec,
+    docInfo: docInfo,
+    checkpoint: checkpoint,
+    toggleTrackRevisions: toggleTrackRevisions,
+    buttonAction: buttonAction,
+    records: function () { return _buf.slice(0); }
+  };
 })();

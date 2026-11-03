@@ -1,40 +1,60 @@
-# 卸载/还原 install.ps1 做的改动
-# 规则:
-#   - 若首次安装前 jsaddons 目录不存在 -> 本目录内容全部由我们创建, 直接整棵删掉 (精确还原)
-#   - 若原本就有 jsaddons -> 只删 publish.xml (或用备份还原), 保留目录与其它插件
+# Undo what install.ps1 did.
+#
+# Rules:
+#   - if jsaddons did not exist before install -> the whole directory is ours, delete it
+#   - if it did exist -> remove only our publish.xml entries (or restore the backup)
 $ErrorActionPreference = 'Stop'
+$RepoRoot   = Split-Path -Parent $PSScriptRoot
 $JsAddons   = Join-Path $env:APPDATA 'kingsoft\wps\jsaddons'
 $PublishXml = Join-Path $JsAddons 'publish.xml'
-$StateDir   = Join-Path (Split-Path -Parent $PSScriptRoot) 'logs'
+$StateDir   = Join-Path $RepoRoot 'logs'
 $StateFile  = Join-Path $StateDir 'orig-state.txt'
 $Bak        = Join-Path $StateDir 'publish.xml.bak'
 
 if (-not (Test-Path $StateFile)) {
-    Write-Host '[warn] 找不到 orig-state.txt, 按"原本不存在"处理'
-    $origExisted = $false; $origXml = $false
+    Write-Host '[warn] orig-state.txt not found; treating jsaddons as pre-existing-empty'
+    $origExisted = $false
+    $origXml = $false
 } else {
     $lines = Get-Content $StateFile
     $origExisted = [bool]($lines | Where-Object { $_ -eq 'jsaddons_existed=True' })
-    $origXml     = [bool]($lines | Where-Object { $_ -eq 'publish_xml_existed=True' })
+    $origXml = [bool]($lines | Where-Object { $_ -eq 'publish_xml_existed=True' })
 }
-Write-Host "[state] jsaddons_existed(原始)=$origExisted  publish_xml_existed(原始)=$origXml"
+Write-Host "[state] jsaddons_existed(original)=$origExisted  publish_xml_existed(original)=$origXml"
 
 if (-not $origExisted) {
-    # 原本没有 jsaddons: 整棵删掉即可精确回到安装前
     if (Test-Path $JsAddons) {
         Remove-Item $JsAddons -Recurse -Force
-        Write-Host "[remove] $JsAddons (递归, 原本不存在)"
+        Write-Host "[remove] $JsAddons (did not exist before install)"
     }
 } else {
     if ($origXml -and (Test-Path $Bak)) {
         Copy-Item $Bak $PublishXml -Force
-        Write-Host "[restore] publish.xml <- logs\publish.xml.bak"
+        Write-Host '[restore] publish.xml <- logs\publish.xml.bak'
     } elseif (Test-Path $PublishXml) {
-        Remove-Item $PublishXml -Force
-        Write-Host "[remove] $PublishXml"
+        # keep foreign entries, drop ours
+        try {
+            [xml]$doc = Get-Content $PublishXml -Raw
+            $kept = @($doc.jsplugins.jspluginonline | Where-Object { $_.name -ne 'EditTrail' })
+            if ($kept.Count -eq 0) {
+                Remove-Item $PublishXml -Force
+                Write-Host "[remove] $PublishXml (no foreign entries left)"
+            } else {
+                $out = New-Object System.Text.StringBuilder
+                [void]$out.AppendLine('<jsplugins>')
+                foreach ($e in $kept) {
+                    [void]$out.AppendLine('  <jspluginonline name="' + $e.name + '" type="' + $e.type + '" url="' + $e.url + '" debug="" enable="enable_dev" install="null" customDomain=""/>')
+                }
+                [void]$out.AppendLine('</jsplugins>')
+                [System.IO.File]::WriteAllText($PublishXml, $out.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+                Write-Host "[edit] removed EditTrail entries, kept $($kept.Count) foreign entry(s)"
+            }
+        } catch {
+            Remove-Item $PublishXml -Force
+            Write-Host "[remove] $PublishXml (parse failed, removed)"
+        }
     }
-    # 我们额外放的 payload 目录 (若有) 单独清掉, 不动其它插件
-    $payload = Join-Path $JsAddons 'EditTrail_0.1.0'
+    $payload = Join-Path $JsAddons 'EditTrail_0.2.0'
     if (Test-Path $payload) { Remove-Item $payload -Recurse -Force; Write-Host "[remove] $payload" }
 }
 

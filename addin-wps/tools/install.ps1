@@ -1,61 +1,84 @@
-# 安装 EditTrail 探针加载项 (et / 表格)
-# 用法:
-#   powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1
-#   powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1 -Port 39871
-# 做的事:
-#   1) 把原始状态 (jsaddons 是否存在 / publish.xml 是否存在 / 备份) 记到 logs\orig-state.txt
-#   2) 写 %APPDATA%\kingsoft\wps\jsaddons\publish.xml, 指向 http://127.0.0.1:<Port>/
-#   3) 读回校验, 确认文件真的写成
-# 注意: 相对目录 / file:// 形态实测不被加载, 所以必须走 http。
+# Install the EditTrail add-in for all three WPS components.
+#
+# Usage:
+#   powershell -NoProfile -ExecutionPolicy Bypass -File addin-wps\tools\install.ps1
+#   powershell -NoProfile -ExecutionPolicy Bypass -File addin-wps\tools\install.ps1 -Port 39871
+#
+# What it does:
+#   1) records the original state (jsaddons / publish.xml / backup) into logs\orig-state.txt
+#   2) writes %APPDATA%\kingsoft\wps\jsaddons\publish.xml with three entries:
+#        type="et"  -> http://127.0.0.1:<Port>/       (Spreadsheets)
+#        type="wps" -> http://127.0.0.1:<Port>/wps/   (Writer)
+#        type="wpp" -> http://127.0.0.1:<Port>/wpp/   (Presentation)
+#   3) reads the file back and checks the local service answers /health
+#
+# WPS only loads add-ins over http(s): file:// and relative paths are ignored
+# silently, so the local service must be running and stay running.
 param([int]$Port = 39871)
 
 $ErrorActionPreference = 'Stop'
+$RepoRoot   = Split-Path -Parent $PSScriptRoot
 $JsAddons   = Join-Path $env:APPDATA 'kingsoft\wps\jsaddons'
 $PublishXml = Join-Path $JsAddons 'publish.xml'
-$StateDir   = Join-Path (Split-Path -Parent $PSScriptRoot) 'logs'
+$StateDir   = Join-Path $RepoRoot 'logs'
 New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
 $StateFile  = Join-Path $StateDir 'orig-state.txt'
 $Bak        = Join-Path $StateDir 'publish.xml.bak'
 
-# 只在第一次安装时记录原始状态, 避免二次安装把"已安装状态"当成原始状态
 if (Test-Path $StateFile) {
-    Write-Host "[state] 已存在 orig-state.txt, 保留首次记录 (不会覆盖)"
+    Write-Host '[state] orig-state.txt already exists; keeping the first record'
 } else {
     $state = @()
     $state += "captured=$((Get-Date).ToString('o'))"
     $state += "jsaddons_existed=$(Test-Path $JsAddons)"
     if (Test-Path $JsAddons) {
-        $state += "jsaddons_contents=" + ((Get-ChildItem $JsAddons -Force | ForEach-Object { $_.Name }) -join ';')
+        $state += 'jsaddons_contents=' + ((Get-ChildItem $JsAddons -Force | ForEach-Object { $_.Name }) -join ';')
     }
     $state += "publish_xml_existed=$(Test-Path $PublishXml)"
     if (Test-Path $PublishXml) {
         Copy-Item $PublishXml $Bak -Force
-        $state += "publish_xml_backup=logs\publish.xml.bak"
-        $state += "publish_xml_sha256=" + (Get-FileHash $PublishXml -Algorithm SHA256).Hash
+        $state += 'publish_xml_backup=logs\publish.xml.bak'
+        $state += 'publish_xml_sha256=' + (Get-FileHash $PublishXml -Algorithm SHA256).Hash
     }
     Set-Content -Path $StateFile -Value $state -Encoding UTF8
     Write-Host "[state] $StateFile"
-    $state | ForEach-Object { Write-Host "  $_" }
 }
 
-# 写 publish.xml (无 BOM: 有 BOM 时个别解析器会把它当内容)
-New-Item -ItemType Directory -Force -Path $JsAddons | Out-Null
+$base = "http://127.0.0.1:$Port"
 $xml = @"
 <jsplugins>
-  <jspluginonline name="EditTrailProbe" type="et" url="http://127.0.0.1:$Port/" debug="" enable="enable_dev" install="null" customDomain=""/>
+  <jspluginonline name="EditTrail" type="et" url="$base/" debug="" enable="enable_dev" install="null" customDomain=""/>
+  <jspluginonline name="EditTrail" type="wps" url="$base/wps/" debug="" enable="enable_dev" install="null" customDomain=""/>
+  <jspluginonline name="EditTrail" type="wpp" url="$base/wpp/" debug="" enable="enable_dev" install="null" customDomain=""/>
 </jsplugins>
 "@
+
+New-Item -ItemType Directory -Force -Path $JsAddons | Out-Null
+# no BOM: some parsers treat the BOM as content
 [System.IO.File]::WriteAllText($PublishXml, $xml, (New-Object System.Text.UTF8Encoding($false)))
 
-# 读回校验: 不做这一步时, 曾出现"目录建了但文件没写"的静默失败
-if (-not (Test-Path $PublishXml)) { throw "[FAIL] publish.xml 未写成: $PublishXml" }
+if (-not (Test-Path $PublishXml)) { throw "[FAIL] publish.xml was not written: $PublishXml" }
 $readBack = Get-Content $PublishXml -Raw
-if ($readBack -notmatch 'jspluginonline') { throw "[FAIL] publish.xml 内容异常: $readBack" }
-Write-Host "[write] OK $PublishXml ($((Get-Item $PublishXml).Length)B)"
-Get-Content $PublishXml
+foreach ($t in 'et', 'wps', 'wpp') {
+    if ($readBack -notmatch ('type="' + $t + '"')) { throw "[FAIL] publish.xml missing type=$t" }
+}
+Write-Host "[write] OK $PublishXml ($((Get-Item $PublishXml).Length)B, 3 hosts)"
 
-Write-Host ""
-Write-Host "下一步:"
-Write-Host "  1) 启动静态服务:  node addin-wps\tools\serve.js $Port     (必须一直开着)"
-Write-Host "  2) 启动 WPS 表格并打开任意 .xlsx (空白开始页不会加载加载项)"
-Write-Host "  3) 看 logs\server.log 与 logs\addin.log"
+$health = 'down'
+try {
+    $r = Invoke-WebRequest -UseBasicParsing -Uri "$base/health" -TimeoutSec 3
+    if ($r.StatusCode -eq 200) { $health = 'up' }
+} catch {
+    $health = 'down'
+}
+Write-Host "[service] $base/health = $health"
+if ($health -ne 'up') {
+    Write-Host '[warn] start the service first: node addin-wps\tools\serve.js ' + $Port
+}
+
+Write-Host ''
+Write-Host 'Next steps:'
+Write-Host '  1) keep the service running:  node addin-wps\tools\serve.js ' + $Port
+Write-Host '  2) close WPS completely, then reopen it (add-ins are read at component start)'
+Write-Host '  3) open an .xlsx / .docx / .pptx; each component shows an "EditTrail" tab'
+Write-Host "  4) events land in logs\addin-events.jsonl and $(Join-Path $env:APPDATA 'kingsoft\wps\jsaddons')..\edit-trail\logs\addin.log"

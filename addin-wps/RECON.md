@@ -66,7 +66,7 @@ WPS 个人版会正常加载并在功能区出现自定义标签页。加载项�
 
 ```xml
 <jsplugins>
-  <jspluginonline name="EditTrailProbe" type="et" url="http://127.0.0.1:39871/" debug="" enable="enable_dev" install="null" customDomain=""/>
+  <jspluginonline name="EditTrail" type="et" url="http://127.0.0.1:39871/" debug="" enable="enable_dev" install="null" customDomain=""/>
 </jsplugins>
 ```
 
@@ -170,7 +170,9 @@ wps.FileSystem.Remove(p)
 
 ## 6. 未确证 / 不要当结论用
 
-- wps.exe / wpp.exe 的加载项是否同样顺畅 (只验证了 `type="et"`; wps/wpp 的 manifest/ribbon 结构从模板看是同一套, 但**没跑过**)。
+- ~~wps.exe / wpp.exe 的加载项是否同样顺畅~~ —— **已实测跑通**，见 §8。三宿主共用一套包，
+  `type` 决定宿主，`/<host>/host.js` 注入宿主标识；三宿主的事件 API 都只在 `wps.ApiEvent` 上，
+  `trail.js` 做了 `Application.ApiEvent → wps.ApiEvent → 全局 ApiEvent` 三级回退。
 - `DocumentBeforeSave` / `DocumentAfterSave` 之外的保存时机事件在 wps 宿主上的真实触发 (仅从类型定义读到)。
 - `OAAssist.ShellExecute` 能否真的起外部 exe (未实测)。
 - `PluginStorage` 的容量与持久化位置 (未实测)。
@@ -190,6 +192,43 @@ wps.FileSystem.Remove(p)
    `GET /manifest.xml → /ribbon.xml → /index.html → /main.js → /js/*.js`（对应 #6、#8）；
 2. 跑 `addin-wps/tools/install.ps1`，重启 WPS 表格并打开任意 `.xlsx`，功能区应出现
    `EditTrail` 标签页（对应 #4、#7、#10、#11）；
-3. 点「写探针日志」、改一个单元格，看 `logs/addin.log` 里的 `button` 与 `SheetChange` 两行
+3. 点「记检查点」（文字宿主点「修订开关」）、改一个单元格或保存一次，看 `logs/addin-events.jsonl` 里的 `button` / `event` 行
    （对应 #15–#19、#20、#25）；
 4. 把 `publish.xml` 的 `url` 改成 `file:///…` 重启一次 et，观察加载项不再加载且无报错（对应 #5）。
+
+---
+
+## 8. 三宿主实测（2026-11-03，加载项 v0.2.0）
+
+一套包挂三个 `type`，同一 HTTP 服务按 `/<host>/` 路由；`/<host>/host.js` 返回
+`var EDIT_TRAIL_HOST = '<host>';`，页面据此选对象模型与事件表。
+
+| 宿主 | `publish.xml` url | boot `appName` | 注册成功的事件 | 实测触发 |
+|---|---|---|---|---|
+| 表格 et | `http://127.0.0.1:39871/` | `Microsoft Excel` | 9 个：NewWorkbook / WorkbookOpen / WorkbookBeforeSave / WorkbookAfterSave / WorkbookBeforeClose / SheetChange / SheetActivate / WindowActivate / WindowDeactivate | `WorkbookBeforeClose`、`WindowDeactivate`（关闭窗口） |
+| 文字 wps | `http://127.0.0.1:39871/wps/` | `Microsoft Word` | 6 个：DocumentOpen / DocumentBeforeSave / DocumentBeforeClose / DocumentAfterClose / WindowActivate / WindowDeactivate | `DocumentBeforeSave`（Ctrl+S） |
+| 演示 wpp | `http://127.0.0.1:39871/wpp/` | `Microsoft PowerPoint` | 5 个：NewPresentation / PresentationOpen / PresentationBeforeSave / PresentationBeforeClose / PresentationSave | `PresentationBeforeClose`（关闭窗口） |
+
+请求顺序（三宿主一致，见 `logs/http.log`）：
+`GET /<host>/manifest.xml → /<host>/ribbon.xml (499B) → /<host>/index.html (460B) → /<host>/host.js → /<host>/js/trail.js → /<host>/js/ribbon.js`
+
+### 新发现（在 §1–§3 之外）
+
+1. **`Application.ApiEvent` 在本机三宿主都不存在**。ET 侦察期用的是 `_app.ApiEvent`（当时可用），
+   现在 ET/Writer/Presentation 一致只有 `wps.ApiEvent` → `trail.js` 的 `apiEvent()` 做
+   `Application.ApiEvent → wps.ApiEvent → 全局 ApiEvent` 三级回退，`listeners.source` 字段记录命中的是哪一层。
+2. **`authaddin.json` 按宿主惰性生成**：`%APPDATA%\kingsoft\wps\jsaddons\authaddin.json` 里
+   `et` / `wps` / `wpp` 分别是独立条目，某宿主第一次真正启动（组件进程起来）才登记。
+   Presentation 首次启动到加载项真正被请求之间隔了约 90 秒（被第三方 iSlide 面板拖慢），
+   期间 `http.log` 无任何 `/wpp/` 请求——**不要据此判定加载失败**，看 `addin-events.jsonl` 更可靠。
+3. **演示宿主的 `Saved` 是三态**：`-1` 未知 / `0` 未保存 / `true` 已保存。`open.doc.saved = -1` 不是错误。
+4. `publish.xml` 只在组件启动时读一次；改完必须**完全退出 WPS**（所有 wps/et/wpp 进程）再开。
+5. 关闭窗口用 `WM_CLOSE` 是验证关闭类事件最稳的办法（不需要 UI 自动化，也不会真的丢内容）。
+
+### 仍未验证
+
+- 演示宿主的保存事件（`PresentationBeforeSave` / `PresentationSave`）没有直接观测到（只观测了关闭）。
+- 功能区按钮的真实点击（「记检查点」「修订开关」）未做 UI 自动化；`TrackRevisions` 切换后
+  文档是否带 `w:ins` 作者标记，尚未端到端验证。
+- Excel `SheetChange` 在新代码路径下未重新触发（侦察期用旧版验证过，事件名相同）。
+- 非 12.1.0.29680 版本的兼容性。
