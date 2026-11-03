@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { buildSnapshot, loadSnapshot, saveSnapshot, writeJsonAtomic } from './snapshot.mjs';
 import { diffSnapshots, summarizeDiff } from './diff.mjs';
-import { journalPath, lockPath, edittrailDir, isoLocal } from './paths.mjs';
+import { journalPath, lockPath, edittrailDir, newEdittrailDir, legacyEdittrailDir, isoLocal } from './paths.mjs';
 
 export const CHANGE_LIMIT = 500;
 export const LOCK_STALE_MS = 30_000;
@@ -217,6 +217,7 @@ export function buildRecord(file, opts = {}) {
 export function recordVersion(file, opts = {}) {
   const abs = path.resolve(file);
   const logger = opts.logger || null;
+  ensureDocDir(abs); // 旧布局 <doc>.edittrail 会自动搬进 revised record/
   const built = buildSnapshot(abs, { verify: opts.verify });
   const journal = readJournal(abs);
   const last = journal.records.length ? journal.records[journal.records.length - 1] : null;
@@ -317,9 +318,34 @@ function describeShape(snapshot) {
   return `${snapshot.slideCount} 页幻灯片`;
 }
 
-/** 确保 `<doc>.edittrail/` 存在（watch/report 前调用）。 */
+/**
+ * 把旧布局 `<doc>.edittrail/` 搬到 `<dir>/revised record/<doc>.edittrail/`。
+ * 返回 { moved, from, to }；无旧目录时返回 { moved:false }。
+ * 只做同盘 rename；目标已存在时合并（不覆盖已有文件）。
+ */
+export function migrateDocDir(file) {
+  const legacy = legacyEdittrailDir(file);
+  if (!fs.existsSync(legacy)) return { moved: false, from: legacy, to: newEdittrailDir(file) };
+  const next = newEdittrailDir(file);
+  fs.mkdirSync(path.dirname(next), { recursive: true });
+  if (!fs.existsSync(next)) {
+    fs.renameSync(legacy, next);
+    return { moved: true, from: legacy, to: next };
+  }
+  // 目标已存在：把旧目录里的文件逐个并进去，已存在的同名文件保留新的
+  for (const name of fs.readdirSync(legacy)) {
+    const src = path.join(legacy, name);
+    const dst = path.join(next, name);
+    if (!fs.existsSync(dst)) fs.renameSync(src, dst);
+  }
+  try { fs.rmSync(legacy, { recursive: true, force: true }); } catch {}
+  return { moved: true, from: legacy, to: next };
+}
+
+/** 确保 `<dir>/revised record/<doc>.edittrail/` 存在（watch/report 前调用）。 */
 export function ensureDocDir(file) {
-  const dir = edittrailDir(file);
+  migrateDocDir(file);
+  const dir = newEdittrailDir(file);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }

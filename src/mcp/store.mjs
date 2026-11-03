@@ -1,20 +1,13 @@
 // edit-trail · MCP 侧数据读取层
-// 只依赖 docs/CONTRACT.md 定义的落盘格式，不 import 引擎内部模块。
+// 只依赖 docs/CONTRACT.md 定义的落盘格式；路径解析复用引擎的 paths.mjs，
+// 保证「revised record/」新布局与旧布局回退只有一处实现。
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { edittrailDir, journalPath, recordsDir } from '../core/paths.mjs';
 
 export const DOC_EXTS = new Set(['.xlsx', '.xlsm', '.docx', '.pptx']);
-
-/** `<dir>/<name>.xlsx` → `<dir>/<name>.xlsx.edittrail` */
-export function edittrailDir(file) {
-  const abs = path.resolve(file);
-  return path.join(path.dirname(abs), path.basename(abs) + '.edittrail');
-}
-
-export function journalPath(file) {
-  return path.join(edittrailDir(file), 'journal.jsonl');
-}
+export { edittrailDir, journalPath, recordsDir };
 
 /** 读 journal：损坏行不抛错，返回计数 */
 export function readJournal(file) {
@@ -68,7 +61,7 @@ export function writeReaders(file, data) {
   return { ok: true };
 }
 
-/** 文档族归一化：去扩展名 → 去打印/副本标记 → 去 _v2.3-250101 / v2.3 → 收敛分隔符 */
+/** 文档族归一化：去扩展名 → 去打印/副本标记 → 去 _v2.3-261101 / v2.3 → 收敛分隔符 */
 export function lineageKey(filename) {
   let s = path.basename(filename).replace(/\.[^.]+$/, '');
   s = s.replace(/[（(]\s*打印版\s*[）)]/g, '')

@@ -15,9 +15,9 @@
 每个被追踪文件旁边：
 
 ```
-<dir>/<name>.xlsx.edittrail/journal.jsonl      ← 每行一次落盘，含 changes[]
-<dir>/<name>.xlsx.edittrail/snapshot.json      ← 当前内容快照（可 --no-content 关掉）
-<dir>/<name>.xlsx.edittrail/readers.json       ← 各 reader 读到哪个 sha
+<dir>/revised record/<name>.xlsx.edittrail/journal.jsonl      ← 每行一次落盘，含 changes[]
+<dir>/revised record/<name>.xlsx.edittrail/snapshot.json      ← 当前内容快照（可 --no-content 关掉）
+<dir>/revised record/<name>.xlsx.edittrail/readers.json       ← 各 reader 读到哪个 sha
 ```
 
 模型只需读 `journal.jsonl` 的后 N 行。字段见 [CONTRACT.md](CONTRACT.md)。
@@ -117,4 +117,4 @@ MCP 工具描述里已经写了"改文档前先调 `doc_changes`"，但模型仍
 
 - `EDITTRAIL_NO_CONTENT=1`（或 CLI `--no-content`）：journal 只记哈希、锚点、字符增减，
   不存修改前后的文字。适合涉密文档；代价是模型看不到具体改了什么，只能看到"哪里改了"。
-- 所有轨迹都在文档同目录的 `.edittrail/` 里，不上传、不联网。删掉该目录即彻底清除轨迹。
+- 所有轨迹都在文档同目录的 `revised record/` 里，不上传、不联网。删掉该目录即彻底清除轨迹。

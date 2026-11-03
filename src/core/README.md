@@ -16,7 +16,7 @@
 | `snapshot.mjs` | 类型识别、sha256、原子写、`snapshotBuffer` |
 | `diff.mjs` | 行/段落/表格/图表锚点对齐、长文本摘要、噪声聚合、`classifyChange` |
 | `initial.mjs` | 跨版本：找到同族前驱快照后，第一条记录直接是「上一版 → 这一版」的差异 |
-| `journal.mjs` | 每文档一个 `.edittrail/` 目录：锁、原子追加、坏行容错、`--no-content` 裁剪 |
+| `journal.mjs` | 每文档一个 `revised record/<文档>.edittrail/` 目录：锁、原子追加、坏行容错、`--no-content` 裁剪、旧布局自动搬迁 |
 | `lineage.mjs` | 文件名归一化（去扩展名 → 去「（打印版）」/副本 → 去 `_v<num>` / `-<6位日期>`）与同族聚合 |
 | `report.mjs` | markdown 简报渲染，>200 条折叠 |
 | `watch.mjs` | 轮询目录、等落盘稳定、按 sha 去重、逐文件追加 |

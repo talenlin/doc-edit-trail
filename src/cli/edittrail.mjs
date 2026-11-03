@@ -13,7 +13,8 @@ import { renderReport, renderDiffMarkdown } from '../core/report.mjs';
 import { renderChangeLine } from '../core/report.mjs';
 import { buildLineage, extractVersion } from '../core/lineage.mjs';
 import { startWatch, watchOnce } from '../core/watch.mjs';
-import { humanTime } from '../core/paths.mjs';
+import { humanTime, RECORDS_DIRNAME, newEdittrailDir } from '../core/paths.mjs';
+import { migrateDocDir } from '../core/journal.mjs';
 import { extractRevisions, renderRevisions } from '../core/revisions.mjs';
 
 const USAGE = `edit-trail：把「文档落盘」变成「可被模型读懂的变更日志」
@@ -35,7 +36,10 @@ const USAGE = `edit-trail：把「文档落盘」变成「可被模型读懂的�
       渲染大模型友好的 markdown 变更简报
 
   edittrail lineage <file>
-      扫描同目录同族版本，写 <file>.edittrail/lineage.json 并打印版本序列表
+      扫描同目录同族版本，写 <dir>/revised record/<file>.edittrail/lineage.json 并打印版本序列表
+
+  edittrail migrate [dir] [--dry]
+      把旧布局 <文档>.edittrail/ 搬进 <目录>/revised record/（默认当前目录，递归；--dry 只看不做）
 
   edittrail revisions <file.docx> [--limit 50] [--json]
       读 docx 原生修订（w:ins / w:del + 作者 + 时间），回答「谁改的」；
@@ -287,6 +291,56 @@ function cmdRevisions(args, flags) {
   return 0;
 }
 
+// ------------------------------------------------------------------ migrate
+
+function collectLegacyDirs(root) {
+  const out = [];
+  const walk = (dir) => {
+    let ents;
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      if (!e.isDirectory()) continue;
+      if (e.name === 'node_modules' || e.name === '.git') continue;
+      const full = path.join(dir, e.name);
+      if (e.name.endsWith('.edittrail')) {
+        if (path.basename(dir) !== RECORDS_DIRNAME) out.push(full);
+        continue;
+      }
+      if (e.name === RECORDS_DIRNAME) continue;
+      walk(full);
+    }
+  };
+  walk(path.resolve(root));
+  return out;
+}
+
+function cmdMigrate(args, flags) {
+  const root = args[0] ? path.resolve(args[0]) : process.cwd();
+  if (!fs.existsSync(root)) die(`目录不存在：${root}`, 2);
+  const legacy = collectLegacyDirs(root);
+  if (!legacy.length) {
+    process.stdout.write(`没有旧布局的 .edittrail 目录（${root}）\n`);
+    return 0;
+  }
+  const dry = !!flags.get('dry');
+  let moved = 0;
+  for (const dir of legacy) {
+    const docFile = dir.slice(0, -'.edittrail'.length);
+    const to = newEdittrailDir(docFile);
+    if (dry) {
+      process.stdout.write(`[dry] ${path.relative(root, dir)} → ${path.relative(root, to)}\n`);
+      continue;
+    }
+    const res = migrateDocDir(docFile);
+    if (res.moved) {
+      moved++;
+      process.stdout.write(`[搬到] ${path.relative(root, to)}\n`);
+    }
+  }
+  process.stdout.write(`共 ${legacy.length} 个旧目录，搬迁 ${moved} 个到 ${RECORDS_DIRNAME}/\n`);
+  return 0;
+}
+
 // ------------------------------------------------------------------ main
 
 function main(argv) {
@@ -304,6 +358,7 @@ function main(argv) {
     case 'report': return cmdReport(args, flags);
     case 'lineage': return cmdLineage(args, flags);
     case 'revisions': return cmdRevisions(args, flags);
+    case 'migrate': return cmdMigrate(args, flags);
     default:
       die(`未知命令：${cmd}（-h 看用法）`, 2);
   }

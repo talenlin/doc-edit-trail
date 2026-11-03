@@ -10,6 +10,7 @@ import path from 'node:path';
 import { isSupportedDoc } from './snapshot.mjs';
 import { recordVersion, readJournal } from './journal.mjs';
 import { ensureInitialRecord } from './initial.mjs';
+import { RECORDS_DIRNAME } from './paths.mjs';
 
 export const DEFAULT_INTERVAL_MS = 1500;
 
@@ -19,12 +20,13 @@ export function isTransientName(name) {
   if (base.startsWith('~$') || base.startsWith('.')) return true;
   if (base.endsWith('.tmp') || base.includes('.tmp-')) return true;
   if (base.endsWith('.edittrail')) return true;
+  if (base === RECORDS_DIRNAME) return true;
   return false;
 }
 
 /**
  * 目标（文件或目录）→ 候选文档列表。
- * 目录默认只扫一层（实测文档的版本文件常常堆在同一个目录下）。
+ * 目录默认只扫一层（实测文档的版本文件通常堆在同一个目录下）。
  */
 export function collectDocs(target, opts = {}) {
   const abs = path.resolve(target);

@@ -9,6 +9,10 @@
 - 功能区两个按钮各配一个 SVG 图标（`images/checkpoint.svg`、`images/track-changes.svg`），
   通过 `ribbon.xml` 的 `getImage="GetImage"` 返回相对路径。
 
+### Changed
+- 变更记录从「文档旁边的 `<文档>.edittrail/`」改为集中存放在文档同目录的 **`revised record/`** 文件夹里，
+  一个文档一个子目录；旧布局仍可读，首次写入自动搬迁，`edittrail migrate` 可批量迁移。
+
 ### Fixed
 - 加载项 Ribbon 按钮与日志写入重构为生产版（去掉侦察期的自动建表测试）；安装脚本写三条 publish.xml 并读回校验。
 

@@ -1,14 +1,44 @@
 // src/core/paths.mjs
 // 落盘位置约定（docs/CONTRACT.md 第 1 节）：
-//   <dir>/<name>.xlsx.edittrail/journal.jsonl
-// 目录名必须带扩展名，避免和用户自己建的「同名文件夹」混淆。
+//   <dir>/revised record/<name>.xlsx.edittrail/journal.jsonl
+// 同目录下所有文档的记录集中放在 `revised record/` 里，每个文档一个子目录；
+// 子目录名带扩展名，避免和用户自己建的「同名文件夹」混淆。
+//
+// 兼容旧布局：v0.0.1 及更早把 `<name>.xlsx.edittrail/` 直接放在文档同目录。
+// 读取时优先新位置、回退旧位置；写入一律用新位置，`edittrail migrate` 负责搬家。
 
+import fs from 'node:fs';
 import path from 'node:path';
 
-/** `<dir>/<name>.xlsx` → `<dir>/<name>.xlsx.edittrail` */
-export function edittrailDir(file) {
+/** 同目录下集中存放记录的文件夹名。 */
+export const RECORDS_DIRNAME = 'revised record';
+
+/** `<dir>/<name>.xlsx` → `<dir>/revised record` */
+export function recordsDir(file) {
+  return path.join(path.dirname(path.resolve(file)), RECORDS_DIRNAME);
+}
+
+/** 新布局：`<dir>/revised record/<name>.xlsx.edittrail` */
+export function newEdittrailDir(file) {
+  const abs = path.resolve(file);
+  return path.join(path.dirname(abs), RECORDS_DIRNAME, path.basename(abs) + '.edittrail');
+}
+
+/** 旧布局：`<dir>/<name>.xlsx.edittrail`（v0.0.1 及更早） */
+export function legacyEdittrailDir(file) {
   const abs = path.resolve(file);
   return path.join(path.dirname(abs), path.basename(abs) + '.edittrail');
+}
+
+/**
+ * 读路径：新位置存在就用新位置，否则回退旧位置；都没有时返回新位置（待创建）。
+ */
+export function edittrailDir(file) {
+  const next = newEdittrailDir(file);
+  if (fs.existsSync(next)) return next;
+  const legacy = legacyEdittrailDir(file);
+  if (fs.existsSync(legacy)) return legacy;
+  return next;
 }
 
 export function journalPath(file) {
@@ -27,7 +57,7 @@ export function lockPath(file) {
   return path.join(edittrailDir(file), 'journal.lock');
 }
 
-/** 本地时区 ISO 字符串（契约里的 ts 是 `2026-01-14T10:24:22+08:00` 形态）。 */
+/** 本地时区 ISO 字符串（契约里的 ts 是 `2026-10-30T18:05:22+08:00` 形态）。 */
 export function isoLocal(date = new Date()) {
   const d = date instanceof Date ? date : new Date(date);
   const pad = (n, w = 2) => String(Math.abs(n)).padStart(w, '0');
@@ -40,7 +70,7 @@ export function isoLocal(date = new Date()) {
   );
 }
 
-/** 简报里用的本地时间 `2026/01/14 10:24`。 */
+/** 简报里用的本地时间 `2026/10/30 18:05`。 */
 export function humanTime(date = new Date()) {
   const d = date instanceof Date ? date : new Date(date);
   const pad = (n) => String(n).padStart(2, '0');

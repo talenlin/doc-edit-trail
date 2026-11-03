@@ -39,7 +39,7 @@ const V2 = {
 };
 
 const target = path.join(dir, `_trailtest_${process.pid}.xlsx`);
-const journalDir = `${target}.edittrail`;
+const journalDir = path.join(dir, 'revised record', `_trailtest_${process.pid}.xlsx.edittrail`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const lastRecord = () => {
   const j = readJournal(target);
