@@ -2,9 +2,9 @@
 logs/
 *.log
 
-# 变更记录目录（记录集中放在文档同目录的 revised record/ 下）
+# 变更记录目录（记录集中放在文档同目录的 revision history/ 下）
 *.edittrail/
-revised record/
+revision history/
 
 # demo 生成的文件（保留 markdown 产物，忽略二进制样本）
 examples/*.xlsx

@@ -8,6 +8,7 @@ import { makeXlsx } from './helpers/fixtures.mjs';
 import { initBaseline, recordVersion, readJournal, lastRecord, acquireLock, JournalLockError } from '../src/core/journal.mjs';
 import { ensureInitialRecord, findPredecessor } from '../src/core/initial.mjs';
 import { pathsOf } from './helpers/tmp.mjs';
+import { RECORDS_DIRNAME } from '../src/core/paths.mjs';
 
 const BASE_SPEC = {
   sheets: [
@@ -93,7 +94,7 @@ test('readJournal：损坏行跳过并计入 badLines', () => {
   const { file } = pathsOf('journal-corrupt', '示例文档报告_v1.0.xlsx');
   writeXlsx(file, BASE_SPEC);
   initBaseline(file, { source: 'cli' });
-  const jp = path.join(path.dirname(file), 'revised record', '示例文档报告_v1.0.xlsx.edittrail', 'journal.jsonl');
+  const jp = path.join(path.dirname(file), RECORDS_DIRNAME, '示例文档报告_v1.0.xlsx.edittrail', 'journal.jsonl');
   fs.appendFileSync(jp, '\n{ this is not json\n');
   const j = readJournal(file);
   assert.equal(j.records.length, 1);
@@ -115,7 +116,7 @@ test('锁：并发持有时抛 ELOCKED，陈旧锁（进程已死）可接管', 
   const r2 = acquireLock(file, { waitMs: 100 });
   r2();
   // 伪造一个死进程的锁 → 应被判定为陈旧并强拆
-  const lockFile = path.join(path.dirname(file), 'revised record', '示例文档报告_v1.0.xlsx.edittrail', 'journal.lock');
+  const lockFile = path.join(path.dirname(file), RECORDS_DIRNAME, '示例文档报告_v1.0.xlsx.edittrail', 'journal.lock');
   fs.writeFileSync(lockFile, JSON.stringify({ pid: 999999, token: 'dead', startedAt: Date.now() - 60000 }));
   const r3 = acquireLock(file, { waitMs: 200 });
   r3();
@@ -157,7 +158,7 @@ test('跨版本：前驱存在但无快照时，回落为基线并注明', () =>
   const v24 = writeXlsx(path.join(dir, '示例文档报告_v2.4.xlsx'), EDIT_SPEC);
   initBaseline(v23, { source: 'cli' });
   // 删掉前驱快照，模拟「没跑过 init 的旧文件」
-  fs.rmSync(path.join(dir, 'revised record', '示例文档报告_v2.3.xlsx.edittrail', 'snapshot.json'));
+  fs.rmSync(path.join(dir, RECORDS_DIRNAME, '示例文档报告_v2.3.xlsx.edittrail', 'snapshot.json'));
   const rec = ensureInitialRecord(v24, { source: 'cli' }).record;
   assert.equal(rec.changeCount, 0);
   assert.match(rec.summary, /前驱无快照/);

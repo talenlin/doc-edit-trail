@@ -29,7 +29,7 @@ fs.writeFileSync(docx, buildZip([{
     '<w:r><w:t>新增的一句话</w:t></w:r></w:ins></w:p></w:body></w:document>',
 }]));
 
-const et = path.join(dir, 'revised record', '示例报告_v2.4.xlsx.edittrail');
+const et = path.join(dir, 'revision history', '示例报告_v2.4.xlsx.edittrail');
 fs.mkdirSync(et, { recursive: true });
 const recs = [
   {
@@ -152,7 +152,7 @@ try {
   // 只有基线、没有变更记录 → 必须给出"可能还没和上一版对照"的解释，而不是"0 处改动"
   const base = path.join(dir, '示例报告_v3.0.xlsx');
   fs.writeFileSync(base, 'x');
-  const bet = path.join(dir, 'revised record', '示例报告_v3.0.xlsx.edittrail');
+  const bet = path.join(dir, 'revision history', '示例报告_v3.0.xlsx.edittrail');
   fs.mkdirSync(bet, { recursive: true });
   const brec = {
     seq: 1, ts: '2026-01-15T15:49:14+08:00', tsMs: Date.parse('2026-01-15T15:49:14+08:00'),

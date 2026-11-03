@@ -60,7 +60,7 @@ node src/cli/edittrail.mjs diff "D:\docs\报告_v2.3.xlsx" "D:\docs\报告_v2.4.
 # 5) docx 原生修订：谁改的
 node src/cli/edittrail.mjs revisions "D:\docs\报告_v2.4.docx"
 
-# 把旧版本（v0.0.1）留下的 <文档>.edittrail/ 批量搬进 revised record/
+# 把旧版本（v0.0.1）留下的 <文档>.edittrail/ 批量搬进 revision history/
 node src/cli/edittrail.mjs migrate "D:\docs"
 ```
 
@@ -123,15 +123,15 @@ Claude Desktop / 其他 MCP 客户端同理。细节见 [docs/INTEGRATION-MCP.md
 
 ```
 报告_v2.4.xlsx
-revised record/报告_v2.4.xlsx.edittrail/
+revision history/报告_v2.4.xlsx.edittrail/
   journal.jsonl     # 一段落盘 → 一行 JSON，只追加
   snapshot.json     # 当前版本的结构化快照
   lineage.json      # 同族版本索引
   readers.json      # 各消费者读到哪了（MCP reader 游标）
 ```
 
-记录集中放在文档同目录的 `revised record/` 文件夹里（一个文档一个子目录）。
-字段级契约见 [docs/CONTRACT.md](docs/CONTRACT.md)。`revised record/` 建议加进 `.gitignore`。
+记录集中放在文档同目录的 `revision history/` 文件夹里（一个文档一个子目录）。
+字段级契约见 [docs/CONTRACT.md](docs/CONTRACT.md)。`revision history/` 建议加进 `.gitignore`。
 
 ## 隐私
 

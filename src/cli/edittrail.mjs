@@ -13,7 +13,7 @@ import { renderReport, renderDiffMarkdown } from '../core/report.mjs';
 import { renderChangeLine } from '../core/report.mjs';
 import { buildLineage, extractVersion } from '../core/lineage.mjs';
 import { startWatch, watchOnce } from '../core/watch.mjs';
-import { humanTime, RECORDS_DIRNAME, newEdittrailDir } from '../core/paths.mjs';
+import { humanTime, RECORDS_DIRNAME, LEGACY_RECORDS_DIRNAMES, newEdittrailDir } from '../core/paths.mjs';
 import { migrateDocDir } from '../core/journal.mjs';
 import { extractRevisions, renderRevisions } from '../core/revisions.mjs';
 
@@ -36,10 +36,10 @@ const USAGE = `edit-trail：把「文档落盘」变成「可被模型读懂的�
       渲染大模型友好的 markdown 变更简报
 
   edittrail lineage <file>
-      扫描同目录同族版本，写 <dir>/revised record/<file>.edittrail/lineage.json 并打印版本序列表
+      扫描同目录同族版本，写 <dir>/revision history/<file>.edittrail/lineage.json 并打印版本序列表
 
   edittrail migrate [dir] [--dry]
-      把旧布局 <文档>.edittrail/ 搬进 <目录>/revised record/（默认当前目录，递归；--dry 只看不做）
+      把旧布局 <文档>.edittrail/ 搬进 <目录>/revision history/（默认当前目录，递归；--dry 只看不做）
 
   edittrail revisions <file.docx> [--limit 50] [--json]
       读 docx 原生修订（w:ins / w:del + 作者 + 时间），回答「谁改的」；
@@ -303,7 +303,13 @@ function collectLegacyDirs(root) {
       if (e.name === 'node_modules' || e.name === '.git') continue;
       const full = path.join(dir, e.name);
       if (e.name.endsWith('.edittrail')) {
-        if (path.basename(dir) !== RECORDS_DIRNAME) out.push(full);
+        const parentName = path.basename(dir);
+        if (parentName === RECORDS_DIRNAME) continue;
+        // 中间布局：<dir>/revised record/<doc>.edittrail → 文档在上一级
+        const docFile = LEGACY_RECORDS_DIRNAMES.includes(parentName)
+          ? path.join(path.dirname(dir), path.basename(full).slice(0, -'.edittrail'.length))
+          : full.slice(0, -'.edittrail'.length);
+        out.push({ dir: full, docFile, fromRecordsDir: LEGACY_RECORDS_DIRNAMES.includes(parentName) });
         continue;
       }
       if (e.name === RECORDS_DIRNAME) continue;
@@ -324,21 +330,42 @@ function cmdMigrate(args, flags) {
   }
   const dry = !!flags.get('dry');
   let moved = 0;
-  for (const dir of legacy) {
-    const docFile = dir.slice(0, -'.edittrail'.length);
-    const to = newEdittrailDir(docFile);
+  for (const item of legacy) {
+    const to = newEdittrailDir(item.docFile);
     if (dry) {
-      process.stdout.write(`[dry] ${path.relative(root, dir)} → ${path.relative(root, to)}\n`);
+      process.stdout.write(`[dry] ${path.relative(root, item.dir)} → ${path.relative(root, to)}\n`);
       continue;
     }
-    const res = migrateDocDir(docFile);
+    const res = migrateDocDir(item.docFile);
     if (res.moved) {
       moved++;
       process.stdout.write(`[搬到] ${path.relative(root, to)}\n`);
     }
   }
+  if (!dry) removeEmptyLegacyRecordDirs(root);
   process.stdout.write(`共 ${legacy.length} 个旧目录，搬迁 ${moved} 个到 ${RECORDS_DIRNAME}/\n`);
   return 0;
+}
+
+/** 迁移后清掉空的中间布局目录（只删空目录，非空一律不动）。 */
+function removeEmptyLegacyRecordDirs(root) {
+  for (const name of LEGACY_RECORDS_DIRNAMES) {
+    const dirs = [];
+    const walk = (dir) => {
+      let ents;
+      try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of ents) {
+        if (!e.isDirectory() || e.name === 'node_modules' || e.name === '.git') continue;
+        const full = path.join(dir, e.name);
+        if (e.name === name) dirs.push(full);
+        else walk(full);
+      }
+    };
+    walk(path.resolve(root));
+    for (const dir of dirs) {
+      try { if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir); } catch {}
+    }
+  }
 }
 
 // ------------------------------------------------------------------ main

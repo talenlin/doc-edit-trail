@@ -1,6 +1,6 @@
 // edit-trail · MCP 侧数据读取层
 // 只依赖 docs/CONTRACT.md 定义的落盘格式；路径解析复用引擎的 paths.mjs，
-// 保证「revised record/」新布局与旧布局回退只有一处实现。
+// 保证「revision history/」新布局与旧布局回退只有一处实现。
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';

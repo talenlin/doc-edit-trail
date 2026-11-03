@@ -5,7 +5,7 @@
 // 1) 原子性：契约要求「写临时文件 + rename 替换整个文件」。这里遵守，且保留
 //    原有的坏行（不因为一次写而丢弃历史里的损毁内容）。
 // 2) 并发：journal.lock 记录 pid + 起始时间；pid 不存活或锁过期即视为陈旧锁。
-// 3) 快照：diff 需要上一版结构，所以 `<doc>.edittrail/snapshot.json` 始终保存
+// 3) 快照：diff 需要上一版结构，所以 `revision history/<doc>.edittrail/snapshot.json` 始终保存
 //    最近一次落盘的快照；journal 只存 changes（体积可控）。
 // 4) 不吞错：解析失败/不支持类型直接抛，调用方（CLI/watch）决定降级策略。
 
@@ -13,7 +13,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { buildSnapshot, loadSnapshot, saveSnapshot, writeJsonAtomic } from './snapshot.mjs';
 import { diffSnapshots, summarizeDiff } from './diff.mjs';
-import { journalPath, lockPath, edittrailDir, newEdittrailDir, legacyEdittrailDir, isoLocal } from './paths.mjs';
+import {
+  journalPath, lockPath, edittrailDir, newEdittrailDir, legacyEdittrailDir,
+  legacyRecordsEdittrailDirs, isoLocal,
+} from './paths.mjs';
 
 export const CHANGE_LIMIT = 500;
 export const LOCK_STALE_MS = 30_000;
@@ -217,7 +220,7 @@ export function buildRecord(file, opts = {}) {
 export function recordVersion(file, opts = {}) {
   const abs = path.resolve(file);
   const logger = opts.logger || null;
-  ensureDocDir(abs); // 旧布局 <doc>.edittrail 会自动搬进 revised record/
+  ensureDocDir(abs); // 旧布局 <doc>.edittrail 会自动搬进 revision history/
   const built = buildSnapshot(abs, { verify: opts.verify });
   const journal = readJournal(abs);
   const last = journal.records.length ? journal.records[journal.records.length - 1] : null;
@@ -319,30 +322,36 @@ function describeShape(snapshot) {
 }
 
 /**
- * 把旧布局 `<doc>.edittrail/` 搬到 `<dir>/revised record/<doc>.edittrail/`。
+ * 把所有历史布局的 `<doc>.edittrail/` 搬进 `<dir>/revision history/<doc>.edittrail/`。
+ * 兼容两类旧位置：文档旁边的 `<doc>.edittrail/`（v0.0.1 及更早），
+ * 以及中间版本用过的 `revised record/`。
  * 返回 { moved, from, to }；无旧目录时返回 { moved:false }。
  * 只做同盘 rename；目标已存在时合并（不覆盖已有文件）。
  */
 export function migrateDocDir(file) {
-  const legacy = legacyEdittrailDir(file);
-  if (!fs.existsSync(legacy)) return { moved: false, from: legacy, to: newEdittrailDir(file) };
+  const sources = [...legacyRecordsEdittrailDirs(file), legacyEdittrailDir(file)];
+  const existing = sources.filter((dir) => fs.existsSync(dir));
   const next = newEdittrailDir(file);
+  if (!existing.length) return { moved: false, from: sources[0], to: next };
+
   fs.mkdirSync(path.dirname(next), { recursive: true });
-  if (!fs.existsSync(next)) {
-    fs.renameSync(legacy, next);
-    return { moved: true, from: legacy, to: next };
+  if (existing.length === 1 && !fs.existsSync(next)) {
+    fs.renameSync(existing[0], next);
+    return { moved: true, from: existing[0], to: next };
   }
-  // 目标已存在：把旧目录里的文件逐个并进去，已存在的同名文件保留新的
-  for (const name of fs.readdirSync(legacy)) {
-    const src = path.join(legacy, name);
-    const dst = path.join(next, name);
-    if (!fs.existsSync(dst)) fs.renameSync(src, dst);
+  // 目标已存在，或有多个来源：逐个合并，已存在的同名文件保留目标里的新版本
+  for (const dir of existing) {
+    for (const name of fs.readdirSync(dir)) {
+      const src = path.join(dir, name);
+      const dst = path.join(next, name);
+      if (!fs.existsSync(dst)) fs.renameSync(src, dst);
+    }
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
   }
-  try { fs.rmSync(legacy, { recursive: true, force: true }); } catch {}
-  return { moved: true, from: legacy, to: next };
+  return { moved: true, from: existing[0], to: next };
 }
 
-/** 确保 `<dir>/revised record/<doc>.edittrail/` 存在（watch/report 前调用）。 */
+/** 确保 `<dir>/revision history/<doc>.edittrail/` 存在（watch/report 前调用）。 */
 export function ensureDocDir(file) {
   migrateDocDir(file);
   const dir = newEdittrailDir(file);

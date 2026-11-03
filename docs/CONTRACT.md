@@ -7,7 +7,7 @@
 对每个被追踪的文档 `<dir>/<name>.xlsx`（docx/pptx 同）：
 
 ```
-<dir>/revised record/<name>.edittrail/
+<dir>/revision history/<name>.edittrail/
   journal.jsonl     # 追加式变更记录（权威）
   snapshot.json     # 最近一次快照（可选，便于快速 diff）
   lineage.json      # 文档族索引（记录本族其它版本文件）
@@ -15,8 +15,8 @@
   journal.lock      # 并发写锁（内容：pid + 起始时间 ms）
 ```
 
-- 记录集中放在文档同目录的 `revised record/` 下，子目录名固定 `<文件名含扩展名>.edittrail`，避免与用户文件混淆。
-- **旧布局兼容**：v0.0.1 及更早把 `<dir>/<name>.edittrail/` 放在文档旁边；读取时新位置优先、回退旧位置，写入会把旧目录搬进 `revised record/`（`edittrail migrate` 批量迁移）。
+- 记录集中放在文档同目录的 `revision history/` 下，子目录名固定 `<文件名含扩展名>.edittrail`，避免与用户文件混淆。
+- **旧布局兼容**：v0.0.1 及更早把 `<dir>/<name>.edittrail/` 放在文档旁边；中间版本曾集中到 `revised record/`。读取时新位置优先、依次回退这两类旧位置，写入会把旧目录搬进 `revision history/`（`edittrail migrate` 批量迁移）。
 - `journal.jsonl` **只追加**，每行一个 JSON 对象；写入用「写临时文件 + rename」原子替换整个文件（读放大可接受，一版最多几千条）。
 - 任何消费者只依赖 `journal.jsonl` 与 `readers.json`。
 
@@ -150,7 +150,7 @@ server 名 `edit-trail`，零依赖实现（`src/mcp/server.mjs`）。
 - `edittrail watch <dir|file>` → 落 journal（含 `actor`，可由 `--actor` 覆盖）
 - `edittrail report <file> --since <sha|seq> --md` → 简报
 - `edittrail lineage <file>` → 文档族索引（引擎可选实现；MCP 侧有兜底实现）
-- `edittrail migrate [dir] [--dry]` → 把旧布局 `<doc>.edittrail/` 搬进 `revised record/`
+- `edittrail migrate [dir] [--dry]` → 把旧布局 `<doc>.edittrail/` 搬进 `revision history/`
 
 MCP server 通过 `child_process` 调 CLI（而非 import core），保证两套消费路径解耦；若 import 更稳则退化为 import（实现时二选一，以契约字段为准）。
 

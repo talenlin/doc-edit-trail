@@ -1,41 +1,57 @@
 // src/core/paths.mjs
 // 落盘位置约定（docs/CONTRACT.md 第 1 节）：
-//   <dir>/revised record/<name>.xlsx.edittrail/journal.jsonl
-// 同目录下所有文档的记录集中放在 `revised record/` 里，每个文档一个子目录；
+//   <dir>/revision history/<name>.xlsx.edittrail/journal.jsonl
+// 同目录下所有文档的记录集中放在 `revision history/` 里，每个文档一个子目录；
 // 子目录名带扩展名，避免和用户自己建的「同名文件夹」混淆。
 //
-// 兼容旧布局：v0.0.1 及更早把 `<name>.xlsx.edittrail/` 直接放在文档同目录。
-// 读取时优先新位置、回退旧位置；写入一律用新位置，`edittrail migrate` 负责搬家。
+// 兼容旧布局：
+//   1) v0.0.1 及更早：`<name>.xlsx.edittrail/` 直接放在文档同目录；
+//   2) 中间版本曾用过 `revised record/`。
+// 读取时优先新位置、依次回退；写入一律用新位置，`edittrail migrate` 负责搬家。
 
 import fs from 'node:fs';
 import path from 'node:path';
 
 /** 同目录下集中存放记录的文件夹名。 */
-export const RECORDS_DIRNAME = 'revised record';
+export const RECORDS_DIRNAME = 'revision history';
 
-/** `<dir>/<name>.xlsx` → `<dir>/revised record` */
+/** 历史上用过的同类目录名（读取时依次回退，写入/迁移时并入 RECORDS_DIRNAME）。 */
+export const LEGACY_RECORDS_DIRNAMES = ['revised record'];
+
+/** `<dir>/<name>.xlsx` → `<dir>/revision history` */
 export function recordsDir(file) {
   return path.join(path.dirname(path.resolve(file)), RECORDS_DIRNAME);
 }
 
-/** 新布局：`<dir>/revised record/<name>.xlsx.edittrail` */
+/** 新布局：`<dir>/revision history/<name>.xlsx.edittrail` */
 export function newEdittrailDir(file) {
   const abs = path.resolve(file);
   return path.join(path.dirname(abs), RECORDS_DIRNAME, path.basename(abs) + '.edittrail');
 }
 
-/** 旧布局：`<dir>/<name>.xlsx.edittrail`（v0.0.1 及更早） */
+/** 中间布局：`<dir>/<legacyDirName>/<name>.xlsx.edittrail`（返回全部候选） */
+export function legacyRecordsEdittrailDirs(file) {
+  const abs = path.resolve(file);
+  return LEGACY_RECORDS_DIRNAMES.map((name) =>
+    path.join(path.dirname(abs), name, path.basename(abs) + '.edittrail'));
+}
+
+/** 最旧布局：`<dir>/<name>.xlsx.edittrail`（v0.0.1 及更早） */
 export function legacyEdittrailDir(file) {
   const abs = path.resolve(file);
   return path.join(path.dirname(abs), path.basename(abs) + '.edittrail');
 }
 
 /**
- * 读路径：新位置存在就用新位置，否则回退旧位置；都没有时返回新位置（待创建）。
+ * 读路径：新位置存在就用新位置，否则依次回退中间布局、最旧布局；
+ * 都没有时返回新位置（待创建）。
  */
 export function edittrailDir(file) {
   const next = newEdittrailDir(file);
   if (fs.existsSync(next)) return next;
+  for (const dir of legacyRecordsEdittrailDirs(file)) {
+    if (fs.existsSync(dir)) return dir;
+  }
   const legacy = legacyEdittrailDir(file);
   if (fs.existsSync(legacy)) return legacy;
   return next;
