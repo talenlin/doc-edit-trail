@@ -1,6 +1,6 @@
 {
   "name": "edit-trail",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Local-first edit trail for Office documents (xlsx/docx/pptx): record what changed between versions so LLMs read the delta instead of re-diffing.",
   "type": "module",
   "license": "MIT",

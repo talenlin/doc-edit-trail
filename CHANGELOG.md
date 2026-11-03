@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.0.2 — 2026-11-03
 
 ### Added
 - WPS 加载项同时挂到 Writer（文字）与 Presentation（演示）：一套包按 `type="et|wps|wpp"` 注册，
@@ -8,6 +8,7 @@
 - 事件 API 改为三级回退：本机三宿主都只暴露 `wps.ApiEvent`（`Application.ApiEvent` 不存在）。
 - 功能区两个按钮各配一个 SVG 图标（`images/checkpoint.svg`、`images/track-changes.svg`），
   通过 `ribbon.xml` 的 `getImage="GetImage"` 返回相对路径。
+- 新增 `edittrail migrate [目录] [--dry]`：批量把旧布局的记录目录搬进 `revision history/`。
 
 ### Changed
 - 变更记录从「文档旁边的 `<文档>.edittrail/`」改为集中存放在文档同目录的 **`revision history/`** 文件夹里，
@@ -16,6 +17,10 @@
 
 ### Fixed
 - 加载项 Ribbon 按钮与日志写入重构为生产版（去掉侦察期的自动建表测试）；安装脚本写三条 publish.xml 并读回校验。
+
+### 升级说明
+- 引擎/CLI/MCP 直接换目录即可：读取兼容旧布局，首次写入自动搬迁；想一次性搬完可跑 `edittrail migrate <目录>`。
+- WPS 加载项改过 `publish.xml` 与 `ribbon.xml`，升级后需要**完全退出 WPS 再重新打开**才会生效。
 
 ## v0.0.1 — 2026-11-02
 
@@ -51,7 +56,7 @@
 图表只比缓存值/锚点，图片只比 sha256；条件格式、数据验证、批注、超链接未采集；
 pptx 仅形状文本；加密文档不支持；只在落盘后记录。
 
-## v0.0.2（计划）
+## v0.0.3（计划）
 
 - Microsoft Office 一侧：Word Add-in（WordApi 1.6 `getTrackedChanges()`）、Excel（事件 + 落盘 diff）。
 - 把加载项事件与原生修订作者接成 journal 的 `actor` 证据链（带 `actorConfidence`）。

@@ -160,8 +160,9 @@ node tools/probe-mcp.mjs <file>   # 用同一套 stdio 协议看模型会收到�
 
 ## 路线图
 
-- **v0.0.1**（本版）：落盘层 + lineage + docx 原生修订 + MCP 5 工具 + WPS 表格加载项。
-- **v0.0.2**：Microsoft Office 一侧 —— Word Add-in（WordApi 1.6 `getTrackedChanges()` 读修订）、
+- **v0.0.2**（本版）：WPS 三宿主加载项（表格 / 文字 / 演示）+ 功能区图标；变更记录集中到 `revision history/`；
+  `edittrail migrate` 迁移旧布局；MCP 5 工具与 CLI 全线复用新路径。
+- **v0.0.3**：Microsoft Office 一侧 —— Word Add-in（WordApi 1.6 `getTrackedChanges()` 读修订）、
   Excel（事件 + 落盘 diff，Excel 无修订对象模型）、`lib/` 内共享事件上报协议。
 - 之后：把加载项事件 / 原生修订作者接成 journal 的 `actor` 直接证据链（含置信度），
   WPS 文字加载项内读 `Revisions`（R3）实测。

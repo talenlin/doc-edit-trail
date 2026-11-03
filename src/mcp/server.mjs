@@ -15,7 +15,7 @@ import { renderChanges, renderTrail, renderVersions } from './render.mjs';
 import { extractRevisions, renderRevisions } from '../core/revisions.mjs';
 
 const SERVER_NAME = 'edit-trail';
-const SERVER_VERSION = '0.1.0';
+const SERVER_VERSION = '0.0.2';
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 // 本地时区格式化：journal/readers 里存的是带时区的 ISO，直接 toISOString() 会显示成 UTC（差 8 小时）
