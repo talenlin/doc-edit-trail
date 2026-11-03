@@ -6,6 +6,8 @@
 - WPS 加载项同时挂到 Writer（文字）与 Presentation（演示）：一套包按 `type="et|wps|wpp"` 注册，
   `/<host>/host.js` 注入宿主标识；文字宿主可一键切换 `TrackRevisions`，`edittrail revisions` 可读作者与时间。
 - 事件 API 改为三级回退：本机三宿主都只暴露 `wps.ApiEvent`（`Application.ApiEvent` 不存在）。
+- 功能区两个按钮各配一个 SVG 图标（`images/checkpoint.svg`、`images/track-changes.svg`），
+  通过 `ribbon.xml` 的 `getImage="GetImage"` 返回相对路径。
 
 ### Fixed
 - 加载项 Ribbon 按钮与日志写入重构为生产版（去掉侦察期的自动建表测试）；安装脚本写三条 publish.xml 并读回校验。

@@ -31,3 +31,14 @@ function OnAction(control) {
 function OnGetEnabled(control) { return true; }
 function OnGetVisible(control) { return true; }
 function OnGetLabel(control) { try { return control.Id; } catch (e) { return ''; } }
+
+// icon paths are resolved relative to index.html, i.e. http://127.0.0.1:39871/<host>/images/*.svg
+function GetImage(control) {
+  var id = '';
+  try { id = control.Id || control.id || ''; } catch (e) {}
+  switch (id) {
+    case 'btnCheckpoint': return 'images/checkpoint.svg';
+    case 'btnTrackChanges': return 'images/track-changes.svg';
+    default: return 'images/checkpoint.svg';
+  }
+}

@@ -16,6 +16,10 @@
 | **记检查点** | 把当前文档的 名称 / 完整路径 / 目录 / 是否已保存（文字另加 `TrackRevisions`、修订条数；演示另加幻灯片数）写进 `logs\addin.log` 与 `logs\server.log` |
 | **修订开关** | 仅 WPS 文字可用：切换 `ActiveDocument.TrackRevisions`，把之后的编辑记成 Word 原生修订（带作者），`edittrail revisions` 能读 |
 
+两个按钮各配一个 SVG 图标（`images\checkpoint.svg` 页面+对勾、`images\track-changes.svg` 页面+红色删除线），
+由 `ribbon.xml` 的 `getImage="GetImage"` 回调返回相对路径。图标只在标签页**第一次渲染**时请求，
+所以 `logs\http.log` 里出现 `GET /<host>/images/*.svg` 就说明图标已经生效（`images\` 目录必须随加载项一起部署）。
+
 自动监听的事件（注册成功由 `logs\addin-events.jsonl` 的 `listeners` 记录确认）：
 
 | 宿主 | 事件 |

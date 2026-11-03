@@ -3,8 +3,10 @@
     <tabs>
       <tab id="editTrailTab" label="EditTrail">
         <group id="editTrailGroup" label="修改记录">
-          <button id="btnCheckpoint" label="记检查点" onAction="OnAction" size="large"/>
-          <button id="btnTrackChanges" label="修订开关" onAction="OnAction" size="large"/>
+          <button id="btnCheckpoint" label="记检查点" onAction="OnAction" size="large"
+                  getImage="GetImage" getEnabled="OnGetEnabled" getVisible="OnGetVisible"/>
+          <button id="btnTrackChanges" label="修订开关" onAction="OnAction" size="large"
+                  getImage="GetImage" getEnabled="OnGetEnabled" getVisible="OnGetVisible"/>
         </group>
       </tab>
     </tabs>
