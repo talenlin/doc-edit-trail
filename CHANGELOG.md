@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.0.3 — 2026-11-09
 
 ### Added
 - 旧格式 `.doc / .docm / .xls / .xlt / .ppt / .pps`：先经本机 WPS COM 转成 OOXML 再比结构；
@@ -11,6 +11,12 @@
 
 ### Changed
 - `tools/launch.mjs` 启动的 watcher 默认带 `--recursive`；日志名对纯中文目录名改用短哈希，避免撞名。
+
+### 升级说明
+- 引擎/CLI/MCP 直接换目录即可，记录目录结构没变（仍是 `revision history/`）。
+- 旧格式要在装了 WPS 的机器上才能转换；只换引擎不装 WPS，`.doc/.xls/.ppt` 会记一条「转换失败」，
+  OOXML 文档不受影响。
+- watcher 若由 `tools/launch.mjs` 启动，会自动带 `--recursive`；自己写脚本的话建议也加上。
 
 ## v0.0.2 — 2026-11-03
 
