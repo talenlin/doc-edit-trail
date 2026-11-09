@@ -106,6 +106,9 @@ node src/cli/edittrail.mjs revisions "D:\docs\报告_v2.4.docx"
 
 # 把旧版本（v0.0.1）留下的 <文档>.edittrail/ 批量搬进 revision history/
 node src/cli/edittrail.mjs migrate "D:\docs"
+
+# 把同目录的 .doc/.xls/.ppt 另存成 OOXML（需要本机装了 WPS；--dry 先看清单）
+node src/cli/edittrail.mjs convert "D:\docs" --recursive --dry
 ```
 
 跨版本是自动的：`init v2.3` 建基线后，`init v2.4`（或 watcher 发现 v2.4 落盘）的第一条记录
@@ -185,6 +188,9 @@ revision history/报告_v2.4.xlsx.edittrail/
 
 ## 已知边界
 
+- 旧格式 `.doc/.xls/.ppt` 先经本机 WPS COM 另存成 OOXML 再比结构；转换结果按源文件 sha256 缓存在
+  `revision history/<文件名>.edittrail/converted/`，同一字节版本只转一次。没装 WPS 时这些文件记一条
+  「转换失败」，同目录的 OOXML 文档不受影响。
 - 只在**落盘之后**记录：改了没保存就关掉，这段轨迹不存在。
 - 图表只比缓存值与锚点/尺寸，不逐点 diff；图片只比 sha256。
 - 条件格式、数据验证、批注、超链接未采集。
@@ -195,7 +201,7 @@ revision history/报告_v2.4.xlsx.edittrail/
 ## 开发与测试
 
 ```bash
-node --test                 # 53 项（Node 24 下不要用 `node --test test/`）
+node --test                 # 59 项（Node 24 下不要用 `node --test test/`）
 node src/mcp/selftest.mjs   # 17 项：MCP 协议 + 渲染 + 原生修订，不需要 WPS
 node tools/probe-mcp.mjs <file>   # 用同一套 stdio 协议看模型会收到什么
 ```
@@ -204,7 +210,9 @@ node tools/probe-mcp.mjs <file>   # 用同一套 stdio 协议看模型会收到�
 
 ## 路线图
 
-- **v0.0.2**（本版）：WPS 三宿主加载项（表格 / 文字 / 演示）+ 功能区图标；变更记录集中到 `revision history/`；
+- **未发布（main）**：旧格式 `.doc/.xls/.ppt` 支持（WPS COM 转换 + 按源 sha256 缓存）；`watch --recursive`
+  递归扫描子目录；`edittrail convert` 批量另存为 OOXML。
+- **v0.0.2**：WPS 三宿主加载项（表格 / 文字 / 演示）+ 功能区图标；变更记录集中到 `revision history/`；
   `edittrail migrate` 迁移旧布局；MCP 5 工具与 CLI 全线复用新路径。
 - **v0.0.3**：Microsoft Office 一侧 —— Word Add-in（WordApi 1.6 `getTrackedChanges()` 读修订）、
   Excel（事件 + 落盘 diff，Excel 无修订对象模型）、`lib/` 内共享事件上报协议。

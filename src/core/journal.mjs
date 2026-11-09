@@ -221,7 +221,7 @@ export function recordVersion(file, opts = {}) {
   const abs = path.resolve(file);
   const logger = opts.logger || null;
   ensureDocDir(abs); // 旧布局 <doc>.edittrail 会自动搬进 revision history/
-  const built = buildSnapshot(abs, { verify: opts.verify });
+  const built = buildSnapshot(abs, { verify: opts.verify, converter: opts.converter });
   const journal = readJournal(abs);
   const last = journal.records.length ? journal.records[journal.records.length - 1] : null;
 
@@ -278,7 +278,13 @@ export function recordVersion(file, opts = {}) {
     totalChanges: diff ? diff.totalChanges : 0,
     counts: diff ? diff.counts : {},
     noContent: opts.noContent,
-    extra: { ...(lineageFrom ? { lineageFrom } : {}), ...(opts.extra || {}) },
+    extra: {
+      ...(lineageFrom ? { lineageFrom } : {}),
+      ...(built.sourceFormat
+        ? { sourceFormat: built.sourceFormat, convertedBytes: built.convertedBytes }
+        : {}),
+      ...(opts.extra || {}),
+    },
   });
 
   withLock(abs, () => {

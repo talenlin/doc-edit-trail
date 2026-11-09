@@ -1,5 +1,5 @@
-# Directories watched by tools/start-trail.ps1 (one path per line, UTF-8).
-# Add or remove lines freely; relative paths are not supported.
-# 示例（把下面两行换成你自己的目录后去掉注释）：
+# Directories watched by tools/launch.mjs (one path per line, UTF-8, absolute).
+# Remove the leading # from the lines below and put your own directories there.
+# Subdirectories are included: the watcher runs with --recursive.
 # D:\docs
 # D:\docs\out

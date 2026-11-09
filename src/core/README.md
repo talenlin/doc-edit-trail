@@ -13,6 +13,7 @@
 | `docx.mjs` | `w14:paraId` 段落锚点、段落样式/标题级别、表格、页眉页脚 |
 | `pptx.mjs` | 幻灯片顺序与形状文本 |
 | `revisions.mjs` | docx 原生修订（`w:ins` / `w:del` / `moveFrom` / `moveTo` / `*PrChange`）→ 作者、时间、段落锚点、文本 |
+| `legacy.mjs` | 旧格式 `.doc/.xls/.ppt` 识别、WPS COM 另存为 OOXML、按源文件 sha256 缓存 |
 | `snapshot.mjs` | 类型识别、sha256、原子写、`snapshotBuffer` |
 | `diff.mjs` | 行/段落/表格/图表锚点对齐、长文本摘要、噪声聚合、`classifyChange` |
 | `initial.mjs` | 跨版本：找到同族前驱快照后，第一条记录直接是「上一版 → 这一版」的差异 |
@@ -20,6 +21,18 @@
 | `lineage.mjs` | 文件名归一化（去扩展名 → 去「（打印版）」/副本 → 去 `_v<num>` / `-<6位日期>`）与同族聚合 |
 | `report.mjs` | markdown 简报渲染，>200 条折叠 |
 | `watch.mjs` | 轮询目录、等落盘稳定、按 sha 去重、逐文件追加 |
+
+## 旧格式（.doc / .xls / .ppt）
+
+这几类是 OLE2 复合文档 + Office 97 二进制，不是 ZIP+XML，没法直接比结构。引擎的做法是
+**先转换、再快照**（`legacy.mjs` + `tools/convert-legacy.ps1`）：
+
+1. 按源文件 sha256 查缓存 `<记录目录>/<文件名>.edittrail/converted/<sha>.<docx|xlsx|pptx>`；
+2. 未命中则调 WPS COM（`KWPS/KET/KWPP.Application`）用独立实例另存为 OOXML，再存进缓存；
+3. `sha256`/`size` 记的仍是**源文件**（`.doc` 改一次就能发现），`changes` 比的是转换后的结构。
+
+转换器只在记录目录里写缓存，不动源文件目录；`edittrail convert` 是可选便利（把 OOXML 落到源文件旁边）。
+COM 连接会先数窗口里的文档数，只在自己创建的空实例上隐藏/退出，绝不 Quit 用户正在用的实例。
 
 ## 快照格式（节选）
 

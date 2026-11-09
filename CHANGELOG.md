@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- 旧格式 `.doc / .docm / .xls / .xlt / .ppt / .pps`：先经本机 WPS COM 转成 OOXML 再比结构；
+  转换结果按源文件 sha256 缓存在 `revision history/<文件名>.edittrail/converted/`，同一字节版本只转一次。
+  记录里新增 `sourceFormat` / `convertedBytes`，`sha256` 仍描述源文件。
+- `edittrail convert <dir|file> [--recursive] [--force] [--dry]`：批量把旧格式另存为同目录 OOXML。
+- `watch --recursive` 递归扫描子目录（默认仍只看一层）。
+
+### Changed
+- `tools/launch.mjs` 启动的 watcher 默认带 `--recursive`；日志名对纯中文目录名改用短哈希，避免撞名。
+
 ## v0.0.2 — 2026-11-03
 
 ### Added

@@ -4,6 +4,7 @@
 // Usage: node tools/launch.mjs [--port 39871] [--actor wps-user] [--no-addin] [--dry]
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -89,8 +90,11 @@ if (dry) {
     entries.push(launch('serve', process.execPath, [path.join(root, 'addin-wps', 'tools', 'serve.js'), String(port)], 'serve.log'));
   }
   for (const d of dirs) {
-    const slug = path.basename(d).replace(/[^A-Za-z0-9]+/g, '_') || 'dir';
-    entries.push(launch('watch', process.execPath, [path.join(root, 'src', 'cli', 'edittrail.mjs'), 'watch', d, '--actor', actor], `watch-${slug}.log`, d));
+    // Windows 目录名可能全是非 ASCII（如中文目录名）→ 清洗后会撞名，
+    // 用短 hash 兜底，避免多个 watcher 写同一个日志文件。
+    let slug = path.basename(d).replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    if (!slug) slug = crypto.createHash('sha1').update(d).digest('hex').slice(0, 8);
+    entries.push(launch('watch', process.execPath, [path.join(root, 'src', 'cli', 'edittrail.mjs'), 'watch', d, '--actor', actor, '--recursive'], `watch-${slug}.log`, d));
   }
   fs.writeFileSync(pidFile, JSON.stringify({ startedAt: new Date().toISOString(), actor, port, entries }, null, 2));
   for (const e of entries) console.log(`[ok] ${e.role} pid=${e.pid} ${e.arg}`);

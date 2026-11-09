@@ -16,6 +16,7 @@ import { startWatch, watchOnce } from '../core/watch.mjs';
 import { humanTime, RECORDS_DIRNAME, LEGACY_RECORDS_DIRNAMES, newEdittrailDir } from '../core/paths.mjs';
 import { migrateDocDir } from '../core/journal.mjs';
 import { extractRevisions, renderRevisions } from '../core/revisions.mjs';
+import { comConverter, isLegacyDoc, legacyTypeOf, siblingTarget } from '../core/legacy.mjs';
 
 const USAGE = `edit-trail：把「文档落盘」变成「可被模型读懂的变更日志」
 
@@ -29,8 +30,9 @@ const USAGE = `edit-trail：把「文档落盘」变成「可被模型读懂的�
   edittrail init <file> [--force]
       给一份文档建基线（写 journal 第一条 + snapshot.json）
 
-  edittrail watch <dir|file> [--interval 1500] [--once] [--actor wps-user]
+  edittrail watch <dir|file> [--interval 1500] [--once] [--recursive] [--actor wps-user]
       观察落盘；启动时先为已有文档建基线，之后每次稳定落盘记一条 journal
+      --recursive 递归子目录（默认只看目录这一层）
 
   edittrail report <file> [--since <seq|sha>] [--md [out.md]] [--json]
       渲染大模型友好的 markdown 变更简报
@@ -40,6 +42,10 @@ const USAGE = `edit-trail：把「文档落盘」变成「可被模型读懂的�
 
   edittrail migrate [dir] [--dry]
       把旧布局 <文档>.edittrail/ 搬进 <目录>/revision history/（默认当前目录，递归；--dry 只看不做）
+
+  edittrail convert <dir|file> [--recursive] [--force] [--dry]
+      把 .doc/.xls/.ppt 另存为同目录同名 OOXML（靠本机 WPS COM）；
+      --recursive 递归子目录，--force 覆盖已存在的目标，--dry 只看不做
 
   edittrail revisions <file.docx> [--limit 50] [--json]
       读 docx 原生修订（w:ins / w:del + 作者 + 时间），回答「谁改的」；
@@ -197,6 +203,7 @@ function cmdWatch(args, flags) {
   const opts = {
     actor,
     baseline: true,
+    recursive: !!flags.get('recursive'),
     logger: {
       info: (m) => process.stdout.write(`  · ${m}\n`),
       warn: (m) => process.stderr.write(`  ! ${m}\n`),
@@ -347,8 +354,7 @@ function cmdMigrate(args, flags) {
   return 0;
 }
 
-/** 迁移后清掉空的中间布局目录（只删空目录，非空一律不动）。 */
-function removeEmptyLegacyRecordDirs(root) {
+/** 迁移后清掉空的中间布局目录（只删空目录，非空一律不动）。 */function removeEmptyLegacyRecordDirs(root) {
   for (const name of LEGACY_RECORDS_DIRNAMES) {
     const dirs = [];
     const walk = (dir) => {
@@ -366,6 +372,72 @@ function removeEmptyLegacyRecordDirs(root) {
       try { if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir); } catch {}
     }
   }
+}
+
+function collectLegacyFiles(root, recursive) {
+  const out = [];
+  const walk = (dir, depth) => {
+    let ents;
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      if (e.name === 'node_modules' || e.name === '.git') continue;
+      if (e.name === RECORDS_DIRNAME || LEGACY_RECORDS_DIRNAMES.includes(e.name)) continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (recursive && depth < 12) walk(full, depth + 1);
+        continue;
+      }
+      if (e.isFile() && isLegacyDoc(full)) out.push(full);
+    }
+  };
+  walk(path.resolve(root), 0);
+  out.sort((a, b) => a.localeCompare(b));
+  return out;
+}
+
+function cmdConvert(args, flags) {
+  const target = args[0] ? path.resolve(args[0]) : process.cwd();
+  if (!fs.existsSync(target)) die(`路径不存在：${target}`, 2);
+  const dry = !!flags.get('dry');
+  const force = !!flags.get('force');
+  const stat = fs.statSync(target);
+  const files = stat.isDirectory() ? collectLegacyFiles(target, !!flags.get('recursive')) : [target];
+  if (!files.length) {
+    process.stdout.write(`没有可转换的旧格式文件（${target}）\n`);
+    return 0;
+  }
+
+  let done = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const file of files) {
+    const dst = siblingTarget(file);
+    const rel = path.relative(target, file) || path.basename(file);
+    if (!dst) { skipped++; continue; }
+    if (fs.existsSync(dst) && !force) {
+      skipped++;
+      process.stdout.write(`[跳过] ${rel}（目标已存在：${path.basename(dst)}）\n`);
+      continue;
+    }
+    if (dry) {
+      process.stdout.write(`[dry] ${rel} → ${path.basename(dst)}\n`);
+      continue;
+    }
+    const t0 = Date.now();
+    try {
+      const tmp = path.join(path.dirname(dst), `.convert-${process.pid}-${Date.now()}${path.extname(dst)}`);
+      comConverter({ kind: legacyTypeOf(file), src: file, dst: tmp });
+      fs.renameSync(tmp, dst);
+      done++;
+      process.stdout.write(`[转换] ${rel} → ${path.basename(dst)}（${((Date.now() - t0) / 1000).toFixed(1)}s）\n`);
+    } catch (e) {
+      failed++;
+      try { for (const f of fs.readdirSync(path.dirname(dst))) if (f.startsWith(`.convert-${process.pid}-`) && f.endsWith(path.extname(dst))) fs.unlinkSync(path.join(path.dirname(dst), f)); } catch {}
+      process.stdout.write(`[失败] ${rel}：${e && e.message ? e.message : e}\n`);
+    }
+  }
+  process.stdout.write(`共 ${files.length} 个旧格式文件：转换 ${done}，跳过 ${skipped}，失败 ${failed}\n`);
+  return failed ? 1 : 0;
 }
 
 // ------------------------------------------------------------------ main
@@ -386,6 +458,7 @@ function main(argv) {
     case 'lineage': return cmdLineage(args, flags);
     case 'revisions': return cmdRevisions(args, flags);
     case 'migrate': return cmdMigrate(args, flags);
+    case 'convert': return cmdConvert(args, flags);
     default:
       die(`未知命令：${cmd}（-h 看用法）`, 2);
   }

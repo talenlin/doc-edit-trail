@@ -164,6 +164,12 @@ export function renderReport(file, opts = {}) {
   lines.push(`# 变更简报 · ${name}`);
   lines.push('');
   lines.push(`> 文档族：${lineageKey(name)} · 记录 ${selected.length}/${journal.records.length} 版 · 改动 ${totalChanges} 处${journal.badLines ? ` · 损坏行 ${journal.badLines}` : ''}`);
+  // 旧格式是「先转 OOXML 再比结构」，不说明一下会让人以为引擎直接读了 .doc
+  const legacy = selected.find((r) => r.sourceFormat);
+  if (legacy) {
+    const converted = legacy.convertedBytes ? `，转换后 ${Math.round(legacy.convertedBytes / 1024)} KB` : '';
+    lines.push(`> 源格式：.${legacy.sourceFormat}（已转成 ${legacy.docType} 比较${converted}；sha256 记的是源文件）`);
+  }
   if (totalChanges) lines.push(`> 本次共 ${totalChanges} 处实质改动：${formatGroupCounts(counts)}`);
   lines.push('');
 

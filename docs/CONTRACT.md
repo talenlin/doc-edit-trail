@@ -67,6 +67,11 @@
   此时 `changeCount`/`changes`/`counts` 都描述 v2.3 → 当前版本的差异，`prevSha256` 可为 `null`。
   若找不到前驱快照，退回普通基线：`changeCount: 0`、`changes: []`、无 `lineageFrom`。
   消费者必须区分这两态：**「基线，0 改动」不等于「文档未被修改」**。
+- `sourceFormat` / `convertedBytes`（可选）：旧格式（`.doc/.xls/.ppt` 等）先经 WPS 转换再比结构时出现。
+  `sourceFormat` 是源扩展名（`doc|xls|ppt…`），`convertedBytes` 是转换后 OOXML 的字节数；
+  `sha256`/`size` 始终描述**源文件**，所以「.doc 改一次」仍能靠 sha 变化被发现，而 `changes` 比的是转换后的结构。
+  转换产物按源 sha256 缓存在 `<记录目录>/<文件名>.edittrail/converted/`；没装 WPS 时该文件记为转换失败，
+  不影响同目录的 OOXML 文档。
 - `changes` 超过 500 条时，记录里只放前 500 条并加 `truncated: true, totalChanges: N`（避免 journal 爆炸）。
 - `before`/`after` 是**给模型看的摘要**（≤120 字，超长用 `…` 截断 + `firstDiffAt`）；`beforeFull/afterFull` 仅当原文 ≤1000 字时给出。
 - 无法读取内容时（如 `--no-content`）：省略 `before/after`，保留 `anchor/kind/sha256`。

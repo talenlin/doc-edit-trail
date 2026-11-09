@@ -26,7 +26,8 @@ export function isTransientName(name) {
 
 /**
  * 目标（文件或目录）→ 候选文档列表。
- * 目录默认只扫一层（实测文档的版本文件通常堆在同一个目录下）。
+ * 目录默认只扫一层（实测版本文件常堆在同一个 output 目录下）；
+ * `recursive: true` 时递归子目录（跳过记录目录/符号链接，默认最多 12 层）。
  */
 export function collectDocs(target, opts = {}) {
   const abs = path.resolve(target);
@@ -41,22 +42,32 @@ export function collectDocs(target, opts = {}) {
     if (isSupportedDoc(abs)) out.push({ file: abs, name: path.basename(abs), size: st.size, mtimeMs: st.mtimeMs });
     return out;
   }
-  let names;
-  try {
-    names = fs.readdirSync(abs);
-  } catch {
-    return out;
-  }
-  for (const name of names) {
-    if (isTransientName(name)) continue;
-    if (!isSupportedDoc(name)) continue;
-    const full = path.join(abs, name);
-    let s;
-    try { s = fs.statSync(full); } catch { continue; }
-    if (!s.isFile()) continue;
-    out.push({ file: full, name, size: s.size, mtimeMs: s.mtimeMs });
-  }
-  out.sort((a, b) => a.name.localeCompare(b.name));
+
+  const recursive = opts.recursive === true;
+  const maxDepth = Number.isFinite(opts.maxDepth) ? opts.maxDepth : 12;
+  const walk = (dir, depth) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      const name = ent.name;
+      if (isTransientName(name)) continue;
+      const full = path.join(dir, name);
+      if (ent.isDirectory()) {
+        if (recursive && depth < maxDepth) walk(full, depth + 1);
+        continue;
+      }
+      if (!ent.isFile() || !isSupportedDoc(name)) continue;
+      let s;
+      try { s = fs.statSync(full); } catch { continue; }
+      out.push({ file: full, name, size: s.size, mtimeMs: s.mtimeMs });
+    }
+  };
+  walk(abs, 0);
+  out.sort((a, b) => a.file.localeCompare(b.file));
   return out;
 }
 
@@ -103,6 +114,8 @@ export function watchOnce(target, opts = {}) {
           lineageFrom: r.record?.lineageFrom || null,
         });
       } catch (e) {
+        // 记下签名：同一份坏文件不必每轮重试刷日志，等它再次变化时再试
+        state.set(entry.file, sig);
         result.errors.push({ file: entry.file, error: String(e && e.message || e) });
       }
       continue;
